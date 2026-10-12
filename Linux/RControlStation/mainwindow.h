@@ -483,6 +483,9 @@ private:
     // den förstår: CMD_HYDRAULIC_MOVE (hydraulik via firmware, t.ex. MacTrac) och
     // kontroll 1/3 via dosabindningarna (t.ex. VESC-armar på RobAnt).
     bool mArmL1 = false, mArmL2 = false, mArmR1 = false, mArmR2 = false;
+    // RobAnt: håll in O (cirkel) = vänd på stället, styrspaken ger håll och fart
+    bool mPivotHeld = false;
+    void setPivotHeld(bool held);
     int mArmFrontMove = 0, mArmRearMove = 0;   // senast skickat, i firmwarens värden
     QElapsedTimer mArmResendAge;
     void updateArms();

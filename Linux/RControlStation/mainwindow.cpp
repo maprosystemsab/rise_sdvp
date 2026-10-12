@@ -63,6 +63,11 @@
 
 // Mapros webbserver i WireGuard-tunneln, används när inget annat är inställt.
 static const char *STANDARD_SERVER = "192.168.200.1:8080";
+
+// Aktiviteter som skickas till styrkortet (CMD_RC_CONTROL_ADV). 12 = Emergency Stop.
+static const int ACT_FART = 10;
+static const int ACT_STYRNING = 11;
+static const int ACT_VANDNING = 22; // RobAnt: vändning på stället, −1…+1, + = medurs
 #include <QLoggingCategory>
 #include <QtSql>
 #include <QtCharts>
@@ -1556,6 +1561,24 @@ void MainWindow::handleControllerInput(int controllerNumber, float value)
         const int STYRNING_AKTIVITET = 11;
         const float STYRNING_MAX = 0.8f;
         float scaled = value * (actionId == STYRNING_AKTIVITET ? STYRNING_MAX : (float)ui->throttleMaxBox->value());
+
+        // RobAnt-vändning: medan O hålls blir styrspaken vändning (22) och gasen 0.
+        // Firmwaren begränsar farten (30 % som standard), så spakens värde skickas rakt.
+        if (mPivotHeld && actionId == ACT_STYRNING) {
+            if (value == 0.0f) {
+                mLastActionValues.remove(ACT_VANDNING);
+            } else {
+                mLastActionValues[ACT_VANDNING] = value;
+            }
+            controllerAction(mActiveCarId, ACT_VANDNING, value);
+            return;
+        }
+        if (mPivotHeld && actionId == ACT_FART) {
+            mLastActionValues.remove(ACT_FART);
+            controllerAction(mActiveCarId, ACT_FART, 0.0f);
+            return;
+        }
+
         if (scaled == 0.0f) {
             mLastActionValues.remove(actionId);
         } else {
@@ -8324,6 +8347,9 @@ void MainWindow::handleButtonEvent(const SDL_ControllerButtonEvent& event) {
     ui->statusBar->showMessage(QString("Gamepad: %1 %2").arg(buttonName).arg(pressed ? "PRESSED" : "RELEASED"), 3000);
 
     switch (event.button) {
+    case SDL_CONTROLLER_BUTTON_B:
+        setPivotHeld(pressed);
+        break;
     case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
         qDebug() << "Button L1" << pressed;
         mArmL1 = pressed;
@@ -8335,6 +8361,37 @@ void MainWindow::handleButtonEvent(const SDL_ControllerButtonEvent& event) {
         updateArms();
         break;
     }
+}
+
+// RobAnt: O (cirkel) hålls in = vänd på stället. Gas och styrning nollas när
+// knappen trycks; spakens sidled skickas sedan som aktivitet 22 (vändning).
+// Släpps knappen: vändning 0, och spakarna måste röras igen innan roboten kör.
+void MainWindow::setPivotHeld(bool held)
+{
+    if (held == mPivotHeld) {
+        return;
+    }
+    mPivotHeld = held;
+
+    mLastActionValues.remove(ACT_FART);
+    mLastActionValues.remove(ACT_STYRNING);
+    mLastActionValues.remove(ACT_VANDNING);
+    controllerAction(mActiveCarId, ACT_FART, 0.0f);
+    controllerAction(mActiveCarId, held ? ACT_STYRNING : ACT_VANDNING, 0.0f);
+
+    if (held) {
+        // Står spaken redan åt sidan: börja vända direkt
+        for (auto it = mCachedControllerActions.constBegin(); it != mCachedControllerActions.constEnd(); ++it) {
+            if (it.value() == ACT_STYRNING && mCachedControllerValues.value(it.key(), 0.0f) != 0.0f) {
+                float v = mCachedControllerValues.value(it.key());
+                mLastActionValues[ACT_VANDNING] = v;
+                controllerAction(mActiveCarId, ACT_VANDNING, v);
+            }
+        }
+        ui->statusBar->showMessage("Vändning på stället: styr med spaken åt sidan", 3000);
+    }
+    // Glöm spakarnas senaste värden, så att nästa rörelse skickas på nytt
+    mCachedControllerValues.clear();
 }
 
 void MainWindow::handleAxisEvent(const SDL_ControllerAxisEvent& event) {
