@@ -1535,7 +1535,11 @@ void MainWindow::handleControllerInput(int controllerNumber, float value)
         // - car: mActiveCarId (the currently selected active car)
         // - iAction: the action ID from the database
         // - value: the input value passed to this function
-        float scaled = value*ui->throttleMaxBox->value();
+        // Max-rutan gäller driften. Styrningen (Steering Control, aktivitet 11) har
+        // en mindre motor och går alltid på STYRNING_MAX, oavsett Max-rutan.
+        const int STYRNING_AKTIVITET = 11;
+        const float STYRNING_MAX = 0.8f;
+        float scaled = value * (actionId == STYRNING_AKTIVITET ? STYRNING_MAX : (float)ui->throttleMaxBox->value());
         if (scaled == 0.0f) {
             mLastActionValues.remove(actionId);
         } else {
