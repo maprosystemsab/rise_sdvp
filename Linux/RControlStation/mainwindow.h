@@ -463,6 +463,13 @@ private:
     QMap<int, float> mLastActionValues; // Senast skickade värde per action (≠ 0), skickas om av mRcResendTimer
     QTimer *mRcResendTimer = nullptr;
     void rcResendTick();
+
+    // Nödstoppet från Car_Client (paket 143): -1 = okänt/inget, 0 ok, 1 intryckt,
+    // 2 spärrad (utdragen, väntar på Stopp), 3 fel. Visas på Stopp-knappen.
+    int mNodstoppLage = -1;
+    QElapsedTimer mNodstoppSenast;
+    QIcon mStopIcon;
+    void nodstoppVisa(int lage);
     bool gamepadAttached();
 
     // Armar (L1/L2 fram, R1/R2 bak). Skickas två vägar, varje maskin använder den

@@ -328,6 +328,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 1));
     mSupportedFirmwares.append(qMakePair(30, 2)); // Write-hängningen rättad, heartbeat i sekunder
     mSupportedFirmwares.append(qMakePair(30, 3)); // + autopiloten sätter körriktningen
+    mSupportedFirmwares.append(qMakePair(30, 4)); // + VESC-ping och provsnurr (Robotstyrning)
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
@@ -471,7 +472,23 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(mPacketInterface, &PacketInterface::packetReceived, this,
             [this](quint8 id, CMD_PACKET cmd, const QByteArray &pkt) {
         mVehicle->packetReceived(id, (quint8)cmd, pkt);
+        if ((quint8)cmd == 143 && pkt.size() >= 3) {
+            mNodstoppSenast.start();
+            nodstoppVisa((quint8)pkt[2]);
+        }
     });
+
+    // Stopp-knappen visar nödstoppet. Hörs inget från Car_Client på 3 s
+    // (gammal Car_Client, inget nödstopp, frånkopplad) blir den vanlig igen.
+    mStopIcon = ui->stopButton->icon();
+    nodstoppVisa(-1);
+    QTimer *nodstoppTimer = new QTimer(this);
+    connect(nodstoppTimer, &QTimer::timeout, this, [this]() {
+        if (mNodstoppLage >= 0 && (!mNodstoppSenast.isValid() || mNodstoppSenast.elapsed() > 3000)) {
+            nodstoppVisa(-1);
+        }
+    });
+    nodstoppTimer->start(1000);
     connect(ui->mapLiveWidget, SIGNAL(posSet(quint8,LocPoint)),
             this, SLOT(mapPosSet(quint8,LocPoint)));
     connect(mPacketInterface, SIGNAL(ackReceived(quint8,CMD_PACKET,QString)),
@@ -5702,8 +5719,36 @@ void MainWindow::on_mapAbsYawSlider_sliderReleased()
     on_mapSetAbsYawButton_clicked();
 }
 
+void MainWindow::nodstoppVisa(int lage)
+{
+    if (lage == mNodstoppLage) {
+        return;
+    }
+    mNodstoppLage = lage;
+
+    if (lage >= 1 && lage <= 3) {
+        ui->stopButton->setIcon(QIcon());
+        ui->stopButton->setText("ÅTERSTÄLL");
+        ui->stopButton->setStyleSheet(lage == 2
+            ? "QPushButton { background-color: #e08a1e; color: white; }"
+            : "QPushButton { background-color: #c62828; color: white; }");
+        ui->stopButton->setToolTip(lage == 2
+            ? "Nödstoppet är uppdraget. Tryck för att återställa och köra igen."
+            : "NÖDSTOPP intryckt. Dra upp nödstoppknappen, tryck sedan här.");
+    } else {
+        ui->stopButton->setIcon(mStopIcon);
+        ui->stopButton->setText("STOPP");
+        ui->stopButton->setStyleSheet("");
+        ui->stopButton->setToolTip("Stop all cars");
+    }
+}
+
 void MainWindow::on_stopButton_clicked()
 {
+    if (mNodstoppLage == 1 || mNodstoppLage == 3) {
+        showStatusInfo("Dra upp nödstoppknappen först, tryck sedan ÅTERSTÄLL.", false);
+    }
+
     for (int i = 0;i < mCars.size();i++) {
         mCars[i]->emergencyStop();
     }
