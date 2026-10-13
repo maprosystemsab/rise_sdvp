@@ -376,6 +376,7 @@ private:
     void lockGamepad(const QString &why);
     void updateGamepadButton();
     void openVehicleSettings();
+    void calibrateSteeringAngle();
     bool mConnectingSelected = false; // Guard flag to prevent double connection
     QTimer *mTimer;
     QTimer *mHeartbeatTimer; // periodic heartbeat to vehicles for safety

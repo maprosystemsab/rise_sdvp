@@ -377,6 +377,10 @@ MainWindow::MainWindow(QWidget *parent) :
         vehicleButton->setToolTip("Batterityp, celler, kapacitet och största styrvinkel för maskinen du är ansluten till");
         connect(vehicleButton, &QPushButton::clicked, this, &MainWindow::openVehicleSettings);
         statusLayout->addWidget(vehicleButton, 0, Qt::AlignLeft);
+        QPushButton *angleButton = new QPushButton("Kalibrera styrvinkel…", statusBox);
+        angleButton->setToolTip("Vinkelgivaren: rakt fram, fullt höger och fullt vänster. Sparas i styrkortet.");
+        connect(angleButton, &QPushButton::clicked, this, &MainWindow::calibrateSteeringAngle);
+        statusLayout->addWidget(angleButton, 0, Qt::AlignLeft);
         int idx = ui->verticalLayout->indexOf(ui->verticalSpacer);
         ui->verticalLayout->insertWidget(idx < 0 ? 3 : idx, statusBox);
 
@@ -8463,6 +8467,35 @@ void MainWindow::lockGamepad(const QString &why)
         }
     }
     ui->statusBar->showMessage(why, 8000);
+}
+
+// Vinkelgivaren (firmware 30.4): tre steg, varje steg sparas i styrkortet med
+// terminalkommandona vinkel_noll / vinkel_hoger / vinkel_vanster. Svaren syns i terminalen.
+void MainWindow::calibrateSteeringAngle()
+{
+    if (!mTcpClientMulti->isAnyConnected()) {
+        QMessageBox::warning(this, "Kalibrera styrvinkel", "Anslut till roboten först.");
+        return;
+    }
+    const quint8 id = mVehicle->carId();
+    struct Steg { const char *text; const char *cmd; };
+    const Steg steg[] = {
+        {"Steg 1 av 3: Ställ hjulen <b>rakt fram</b>.<br>Tryck OK när de står rakt.", "vinkel_noll"},
+        {"Steg 2 av 3: Styr <b>fullt höger</b> och låt hjulen stå kvar där.<br>Tryck OK.", "vinkel_hoger"},
+        {"Steg 3 av 3: Styr <b>fullt vänster</b> och låt hjulen stå kvar där.<br>Tryck OK.", "vinkel_vanster"},
+    };
+    for (const Steg &s: steg) {
+        if (QMessageBox::question(this, "Kalibrera styrvinkel", s.text,
+                                  QMessageBox::Ok | QMessageBox::Cancel) != QMessageBox::Ok) {
+            showStatusInfo("Kalibreringen avbruten. Det som redan sparats ligger kvar.", false);
+            return;
+        }
+        mPacketInterface->sendTerminalCmd(id, s.cmd);
+    }
+    mPacketInterface->sendTerminalCmd(id, "vinkel");
+    QMessageBox::information(this, "Kalibrera styrvinkel",
+                             "Klart. Svaren från styrkortet står i terminalen.<br>"
+                             "Rakt fram = 0°, fullt höger = +30°, fullt vänster = −30°.");
 }
 
 void MainWindow::openVehicleSettings()
