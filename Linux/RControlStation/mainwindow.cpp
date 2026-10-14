@@ -472,6 +472,21 @@ MainWindow::MainWindow(QWidget *parent) :
             this, SLOT(packetDataToSend(QByteArray&)));
     connect(mPacketInterface, SIGNAL(stateReceived(quint8,CAR_STATE)),
             this, SLOT(stateReceived(quint8,CAR_STATE)));
+
+    // Bil-ID automatiskt (se applyAutoId): fråga ID_ALL tills kortet svarar, högst ~6 s.
+    mAutoIdTimer = new QTimer(this);
+    mAutoIdTimer->setInterval(500);
+    connect(mAutoIdTimer, &QTimer::timeout, this, [this]() {
+        if (!mAutoIdPending || ++mAutoIdTries > 12) {
+            if (mAutoIdPending) {
+                qDebug() << "Bil-ID: styrkortet svarade inte på ID_ALL, behåller maskinlistans ID.";
+            }
+            mAutoIdPending = false;
+            mAutoIdTimer->stop();
+            return;
+        }
+        mPacketInterface->getState(ID_ALL);
+    });
     mVehicle = new VehicleData(this);
     connect(mPacketInterface, &PacketInterface::packetReceived, this,
             [this](quint8 id, CMD_PACKET cmd, const QByteArray &pkt) {
@@ -2696,9 +2711,35 @@ void MainWindow::packetDataToSend(QByteArray &data)
     mTcpClientMulti->sendAll(data);
 }
 
+void MainWindow::applyAutoId(quint8 id)
+{
+    mAutoIdPending = false;
+    mAutoIdTimer->stop();
+    if (mCars.size() != 1 || id == ID_ALL) {
+        return;
+    }
+    int oldId = mCars.first()->getId();
+    if (oldId == id) {
+        return;
+    }
+    // Maskinlistans ID stämmer inte med styrkortets: gör om bilfliken med kortets ID,
+    // så att statusen kommer fram utan att någon behöver leta upp rätt ID.
+    qDebug() << "Bil-ID: maskinlistan säger" << oldId << "men styrkortet har" << id << "- byter.";
+    QString name = ui->carsWidget->tabText(0);
+    removeCars();
+    ui->carsWidget->clear();
+    addCar(id, name, true);
+    ui->mapCarBox->setValue(id);
+    mPacketInterface->getEnuRef(id);
+    showStatusInfo(QString("Bil-ID %1 hämtat från styrkortet (maskinlistan hade %2)").arg(id).arg(oldId), true);
+}
+
 void MainWindow::stateReceived(quint8 id, CAR_STATE state)
 {
     mStateAge.restart();
+    if (mAutoIdPending) {
+        applyAutoId(id);
+    }
     if (mVehicle) {
         mVehicle->stateReceived(id, state);
     }
@@ -5632,6 +5673,13 @@ void MainWindow::on_tcpConnectButton_clicked()
     // Nollpunkten sätts där roboten står så fort första GPS-positionen kommer
     // från rtkrcv (se nmeaGgaRx), vid varje anslutning.
     mAutoEnuRefPending = !connectIpText.isEmpty();
+
+    // En robot per anslutning: fråga kortet vilket ID det har.
+    mAutoIdPending = (mCars.size() == 1);
+    mAutoIdTries = 0;
+    if (mAutoIdPending) {
+        mAutoIdTimer->start();
+    }
     if (mAutoEnuRefPending) {
         qDebug() << "Väntar på robotens GPS-position för att sätta kartans nollpunkt...";
     }

@@ -456,6 +456,12 @@ private:
     void updateStatusBox();
     VehicleData *mVehicle = nullptr;       // Fordonsdata i statusrutan + körlogg
     QString mConnectedIp;                   // IP till bilen vi senast anslöt till
+    // Bil-ID automatiskt: vid anslutning frågas styrkortet på ID_ALL vilket ID
+    // det har, och bilfliken byts till det om maskinlistans ID inte stämmer.
+    bool mAutoIdPending = false;
+    int mAutoIdTries = 0;
+    QTimer *mAutoIdTimer = nullptr;
+    void applyAutoId(quint8 id);
     bool mNmeaDrawTrace = true;             // rita GPS-positionerna som spår (inte vid automatisk anslutning)
     QNetworkAccessManager *mRouterNet = nullptr; // Egen hanterare: mNetworkManager har globala finished-kopplingar
     QString mRouterLine;                    // Färdig HTML-rad för 4G/5G-mottagningen
