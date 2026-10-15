@@ -30,6 +30,7 @@
 #include "terminal.h"
 #include "styr_position.h"
 #include <stdio.h>
+#include <string.h>
 //#include "watchdog.h"
 
 // Current motor direction: +1 (forward) or -1 (backward)
@@ -631,6 +632,74 @@ static THD_FUNCTION(vandning_thread, arg) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// RobAnt: elektronisk differential (firmware 30.8). I en sväng går innersidan
+// en kortare båge än yttersidan. Bakbensstyrd: vridningscentrum ligger på
+// framaxelns linje, R = hjulbas / tan(styrvinkel) från mitten. Yttersidan får
+// spakens fart, innersidan (R − spårvidd/2) / (R + spårvidd/2) av den.
+// m_diff_gain förstärker inbromsningen av innersidan (0 = ren geometri).
+// Kräver vinkelgivaren (OK och kalibrerad); annars samma fart på båda sidor.
+// ---------------------------------------------------------------------------
+static bool m_diff_pa = true;
+static float m_diff_hjulbas = 1.37f;   // m, fram- till bakaxel (RobAnt originalmått)
+static float m_diff_sparvidd = 1.25f;  // m, mellan vänster och höger hjul
+static float m_diff_gain = 0.0f;
+
+/** Innersidans andel av yttersidans fart vid styrvinkeln (grader). 1 = rakt. */
+static float diff_innerandel(float vinkel_deg) {
+	float t = tanf(fabsf(vinkel_deg) * (float)M_PI / 180.0f);
+	if (t < 1e-3f || m_diff_hjulbas <= 0.0f) {
+		return 1.0f;
+	}
+	float r = m_diff_hjulbas / t;
+	float h = m_diff_sparvidd / 2.0f;
+	float andel = (r > h) ? (r - h) / (r + h) : 0.0f;
+	andel = 1.0f - (1.0f - andel) * (1.0f + m_diff_gain);
+	utils_truncate_number(&andel, 0.0f, 1.0f);
+	return andel;
+}
+
+static void skicka_fart(float fart) {
+	if (!m_diff_pa || !styrpos_vinkel_giltig()) {
+		skicka_sidor(fart, fart);
+		return;
+	}
+	float v = frontangle;	// + = höger: höger sida är innersidan
+	float inre = fart * diff_innerandel(v);
+	if (v > 0.0f) {
+		skicka_sidor(fart, inre);
+	} else {
+		skicka_sidor(inre, fart);
+	}
+}
+
+static void terminal_diff(int argc, const char **argv) {
+	if (argc >= 2) {
+		if (strcmp(argv[1], "pa") == 0) {
+			m_diff_pa = true;
+		} else if (strcmp(argv[1], "av") == 0) {
+			m_diff_pa = false;
+		} else if (argc >= 3) {
+			float x = 0.0f;
+			if (sscanf(argv[2], "%f", &x) == 1) {
+				if (strcmp(argv[1], "hjulbas") == 0 && x > 0.2f && x < 5.0f) {
+					m_diff_hjulbas = x;
+				} else if (strcmp(argv[1], "sparvidd") == 0 && x > 0.2f && x < 5.0f) {
+					m_diff_sparvidd = x;
+				} else if (strcmp(argv[1], "gain") == 0 && x >= 0.0f && x <= 2.0f) {
+					m_diff_gain = x;
+				}
+			}
+		}
+	}
+	commands_printf("Differential: %s, hjulbas %.2f m, spårvidd %.2f m, gain %.2f. "
+			"Innersidan vid 10° %.0f %%, 20° %.0f %%, 30° %.0f %%. Givare %s. Nollställs vid omstart.",
+			m_diff_pa ? "PÅ" : "AV", (double)m_diff_hjulbas, (double)m_diff_sparvidd, (double)m_diff_gain,
+			(double)(100.0f * diff_innerandel(10.0f)), (double)(100.0f * diff_innerandel(20.0f)),
+			(double)(100.0f * diff_innerandel(30.0f)),
+			styrpos_vinkel_giltig() ? "OK" : "saknas/okalibrerad: samma fart båda sidor");
+}
+
 bool motor_rc_adv(uint8_t activity, float value) {
 	if (!sidor_konfigurerade()) {
 		return false; // som förut
@@ -649,7 +718,7 @@ bool motor_rc_adv(uint8_t activity, float value) {
 			m_vand_ut = 0.0f;
 			m_vand_aktiv = false;
 		}
-		skicka_sidor(value, value);
+		skicka_fart(value);
 		return true;
 
 	case ACT_NR_STYRNING:
@@ -710,6 +779,12 @@ static void vandning_init(void) {
 			"  ramp - sekunder fran 0 till max (standard 0.7)",
 			"[max] [ramp]",
 			terminal_vandning);
+	terminal_register_command_callback(
+			"diff",
+			"Elektronisk differential (RobAnt): innersidan saktar in i svang.\n"
+			"  pa|av, hjulbas X, sparvidd X (meter), gain X (0 = ren geometri)",
+			"[pa|av|hjulbas X|sparvidd X|gain X]",
+			terminal_diff);
 }
 
 // Function to get actuators by activity

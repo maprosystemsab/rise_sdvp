@@ -82,6 +82,10 @@ static void set_duty(int id, float duty) {
 	comm_can_unlock_vesc();
 }
 
+bool styrpos_vinkel_giltig(void) {
+	return adconv_angle_sensor_ok() && adconv_angle_calibrated();
+}
+
 bool styrpos_available(void) {
 	return m_enabled && adconv_angle_sensor_ok() && adconv_angle_calibrated();
 }
@@ -274,6 +278,7 @@ void styrpos_init(void) {
 void styrpos_init(void) {}
 void styrpos_update(void) {}
 bool styrpos_available(void) { return false; }
+bool styrpos_vinkel_giltig(void) { return false; }
 bool styrpos_command(int vesc_id, float magnitude) { (void)vesc_id; (void)magnitude; return false; }
 
 #endif

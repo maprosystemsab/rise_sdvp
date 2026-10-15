@@ -14,6 +14,8 @@
 void styrpos_init(void);
 void styrpos_update(void);
 bool styrpos_available(void);
+// Vinkelgivaren är OK och kalibrerad (oavsett om vinkelstyrningen är på).
+bool styrpos_vinkel_giltig(void);
 // Tar hand om ett styrkommando (spakens utslag). Falskt = kör det gamla sättet.
 bool styrpos_command(int vesc_id, float magnitude);
 

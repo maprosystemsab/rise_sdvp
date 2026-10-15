@@ -337,6 +337,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 5)); // + självcentrerande styrning med vinkelgivaren
     mSupportedFirmwares.append(qMakePair(30, 6)); // + bandvagnsvändning (O-knappen)
     mSupportedFirmwares.append(qMakePair(30, 7)); // + snabbare självcentrering
+    mSupportedFirmwares.append(qMakePair(30, 8)); // + elektronisk differential
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
