@@ -57,6 +57,9 @@ const USB_DEVICE: &str = "/dev/vehicle";
 /// ID 255 = alla, så kortet svarar oavsett vilket bil-ID Car_Client kör med.
 const CMD_AP_GET_ROUTE_PART: u8 = 58;
 const BOARD_QUERY: [u8; 7] = [255, CMD_AP_GET_ROUTE_PART, 0, 0, 0, 0, 0];
+/// Vinkelgivaren (firmware 30.11+). Bara läsning, nollställer inte kortets säkerhetstid.
+const CMD_GET_VINKEL: u8 = 143;
+const VINKEL_QUERY: [u8; 2] = [255, CMD_GET_VINKEL];
 
 // Färger: mörk bakgrund, rutor lite ljusare i vila.
 const BOX_IDLE: egui::Color32 = egui::Color32::from_rgb(52, 58, 68);
@@ -96,10 +99,35 @@ struct Status {
     /// GGA fix-kvalitet: 0 ingen, 1 GPS, 2 DGPS, 4 RTK Fix, 5 RTK Float.
     fix_quality: Option<u8>,
     cpu_percent: Option<f32>,
+    /// Vinkelgivaren enligt styrkortet, och när svaret kom.
+    vinkel: Option<(Vinkel, Instant)>,
     /// När CPU:n senast gick över 90 % (för "röd efter 10 s").
     cpu_very_high_since: Option<Instant>,
     /// När insamlingstråden senast blev klar med en runda (hjärtslaget i toppremsan).
     updated: Option<Instant>,
+}
+
+/// Svar på CMD_GET_VINKEL.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Vinkel {
+    /// 0 = kortet har ingen vinkelgivare, 1 = OK, 2 = fel (ingen signal).
+    status: u8,
+    kalibrerad: bool,
+    mv: u16,
+    grader: f32,
+}
+
+/// Tolkar ett svarspaket [id][143][status][kal][mV u16][grader*100 i32].
+fn parse_vinkel(p: &[u8]) -> Option<Vinkel> {
+    if p.len() < 10 || p[1] != CMD_GET_VINKEL {
+        return None;
+    }
+    Some(Vinkel {
+        status: p[2],
+        kalibrerad: p[3] != 0,
+        mv: u16::from_be_bytes([p[4], p[5]]),
+        grader: i32::from_be_bytes([p[6], p[7], p[8], p[9]]) as f32 / 100.0,
+    })
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -310,6 +338,7 @@ fn spawn_collector(status: Arc<Mutex<Status>>) {
         }
         let mut last_board_query: Option<Instant> = None;
         let mut last_board_reply: Option<Instant> = None;
+        let mut vinkel: Option<(Vinkel, Instant)> = None;
 
         loop {
             let started = Instant::now();
@@ -327,10 +356,13 @@ fn spawn_collector(status: Arc<Mutex<Status>>) {
                         while let Ok(n) = s.recv(&mut buf) {
                             if n >= 2 && buf[1] == CMD_AP_GET_ROUTE_PART {
                                 last_board_reply = Some(Instant::now());
+                            } else if let Some(v) = parse_vinkel(&buf[..n]) {
+                                vinkel = Some((v, Instant::now()));
                             }
                         }
                         let _ = s.set_nonblocking(false);
                     }
+                    let _ = s.send_to(&VINKEL_QUERY, CAR_CLIENT_ADDR);
                     let _ = s.send_to(&BOARD_QUERY, CAR_CLIENT_ADDR);
                     // Läs tills svaret kommer, hoppa över allt annat.
                     let deadline = Instant::now() + Duration::from_millis(1200);
@@ -339,6 +371,10 @@ fn spawn_collector(status: Arc<Mutex<Status>>) {
                             Ok(n) if n >= 2 && buf[1] == CMD_AP_GET_ROUTE_PART => {
                                 last_board_reply = Some(Instant::now());
                                 break;
+                            }
+                            Ok(n) if parse_vinkel(&buf[..n]).is_some() => {
+                                vinkel = parse_vinkel(&buf[..n]).map(|v| (v, Instant::now()));
+                                continue;
                             }
                             Ok(_) => continue,
                             Err(_) => break,
@@ -372,6 +408,7 @@ fn spawn_collector(status: Arc<Mutex<Status>>) {
                 st.handshake_error = handshake.is_err();
                 st.handshake_age = handshake.ok().flatten();
                 st.cpu_percent = cpu_percent;
+                st.vinkel = vinkel;
                 st.cpu_very_high_since = match cpu_percent {
                     Some(p) if p > 90.0 => st.cpu_very_high_since.or(Some(Instant::now())),
                     _ => None,
@@ -435,6 +472,10 @@ fn spawn_demo_collector(status: Arc<Mutex<Status>>) {
             st.fix_quality = Some([0u8, 1, 5, 4][((t / 10) % 4) as usize]);
             let p = 50.0 + 45.0 * ((t as f32) / 15.0).sin();
             st.cpu_percent = Some(p);
+            st.vinkel = Some((
+                Vinkel { status: if t % 50 < 42 { 1 } else { 2 }, kalibrerad: true, mv: 3440, grader: 25.0 * ((t as f32) / 7.0).sin() },
+                Instant::now(),
+            ));
             st.cpu_very_high_since = if p > 90.0 { st.cpu_very_high_since.or(Some(Instant::now())) } else { None };
             st.updated = Some(Instant::now());
             drop(st);
@@ -468,6 +509,9 @@ struct Tile {
     color: egui::Color32,
     pulsing: bool,
     action: Option<Action>,
+    /// Styrvinkelrutan: −1 (fullt vänster) … +1 (fullt höger), ritas som en ratt-
+    /// indikator i stället för CPU-mätaren.
+    steer: Option<f32>,
 }
 
 impl App {
@@ -529,10 +573,15 @@ impl App {
             color: ok(st.board_ok),
             pulsing: false,
             action: None,
+            steer: None,
         });
 
         // Nödstoppet (Car_Client --nodstopp-gpio skriver filen). Ingen ruta utan nödstopp.
         if let Some(t) = nodstopp_tile(std::fs::read_to_string(NODSTOPP_FIL).ok().as_deref(), unix_now()) {
+            tiles.push(t);
+        }
+
+        if let Some(t) = vinkel_tile(st.vinkel.map(|(v, t)| (v, t.elapsed()))) {
             tiles.push(t);
         }
 
@@ -569,8 +618,8 @@ impl App {
             Some(5) => "RTK Float".into(),
             Some(n) => format!("kvalitet {n}"),
         };
-        tiles.push(Tile { title: "RTK Float", detail: fix_text.clone(), big: None, color: ok(float_or_better), pulsing: false, action: None });
-        tiles.push(Tile { title: "RTK Fix", detail: fix_text, big: None, color: ok(fix), pulsing: false, action: None });
+        tiles.push(Tile { title: "RTK Float", detail: fix_text.clone(), big: None, color: ok(float_or_better), pulsing: false, action: None, steer: None });
+        tiles.push(Tile { title: "RTK Fix", detail: fix_text, big: None, color: ok(fix), pulsing: false, action: None, steer: None });
 
         let reboot = self.restarting(Action::Reboot);
         let shutdown = self.restarted_at[Action::Shutdown.index()].is_some();
@@ -595,6 +644,7 @@ impl App {
             color: if shutdown { BOX_BAD } else if reboot { BOX_WARN } else { cpu_color },
             pulsing: reboot || shutdown,
             action: (!reboot && !shutdown).then_some(Action::PiMenu),
+            steer: None,
         });
         tiles
     }
@@ -602,7 +652,7 @@ impl App {
     /// Ruta för en tjänst som går att starta om när den inte är grön.
     fn service_tile(&self, title: &'static str, running: bool, action: Action) -> Tile {
         if self.restarting(action) {
-            return Tile { title, detail: "Startar om...".into(), big: None, color: BOX_WARN, pulsing: true, action: None };
+            return Tile { title, detail: "Startar om...".into(), big: None, color: BOX_WARN, pulsing: true, action: None, steer: None };
         }
         Tile {
             title,
@@ -611,6 +661,7 @@ impl App {
             color: if running { BOX_OK } else { BOX_IDLE },
             pulsing: false,
             action: (!running).then_some(action),
+            steer: None,
         }
     }
 
@@ -803,9 +854,22 @@ impl App {
             if let Some(big) = &tile.big {
                 centered(&title, title_size, TEXT, b.top() + h * 0.17);
                 centered(big, title_size * 1.7, TEXT, b.top() + h * 0.43);
-                // CPU-mätare: tio segment.
                 let mw = (tw * 0.6).min(320.0);
                 let meter = egui::Rect::from_center_size(egui::pos2(b.center().x, b.top() + h * 0.66), egui::vec2(mw, h * 0.07));
+                if tile.title == "Styrvinkel" {
+                    // Rattindikator: spår med mittstreck, prick där hjulen står.
+                    let y = meter.center().y;
+                    painter.line_segment([egui::pos2(meter.left(), y), egui::pos2(meter.right(), y)], egui::Stroke::new(4.0_f32, with_alpha(NEON_IDLE, 90)));
+                    painter.line_segment([egui::pos2(meter.center().x, meter.top() - 4.0), egui::pos2(meter.center().x, meter.bottom() + 4.0)], egui::Stroke::new(2.0_f32, with_alpha(TEXT_DIM, 160)));
+                    if let Some(f) = tile.steer {
+                        let x = meter.center().x + f * mw / 2.0;
+                        painter.line_segment([egui::pos2(meter.center().x, y), egui::pos2(x, y)], egui::Stroke::new(4.0_f32, accent));
+                        painter.circle_filled(egui::pos2(x, y), meter.height() * 0.9, accent);
+                    }
+                    centered(&tile.detail, detail_size, detail_color, b.bottom() - h * 0.14);
+                    continue;
+                }
+                // CPU-mätare: tio segment.
                 let segs = 10;
                 let sg = 4.0;
                 let sw = (mw - sg * (segs as f32 - 1.0)) / segs as f32;
@@ -1101,6 +1165,35 @@ fn paint_ecg(painter: &egui::Painter, rect: egui::Rect, t: f32, color: egui::Col
 /// Läget som Car_Client skriver: "<ok|intryckt|sparrad|fel> <unix-tid>", varje sekund.
 const NODSTOPP_FIL: &str = "/tmp/nodstopp_status";
 
+/// Styrvinkelrutan: syns bara på maskiner med vinkelgivare (firmware 30.11+).
+/// Grön = givaren svarar och är kalibrerad, gul = okalibrerad, röd = ingen
+/// signal (kabel/magnet), grå = inget svar från kortet på ett tag.
+fn vinkel_tile(v: Option<(Vinkel, Duration)>) -> Option<Tile> {
+    let (v, age) = v?;
+    if v.status == 0 {
+        return None;
+    }
+    let stale = age > BOARD_POLL * 3;
+    let (color, detail) = if stale {
+        (BOX_IDLE, "inget svar från styrkortet".to_string())
+    } else if v.status == 2 {
+        (BOX_BAD, format!("ingen signal ({} mV) – kabel/magnet?", v.mv))
+    } else if !v.kalibrerad {
+        (BOX_WARN, format!("{} mV – ej kalibrerad", v.mv))
+    } else {
+        (BOX_OK, format!("givaren OK, {} mV", v.mv))
+    };
+    let big = if stale || v.status == 2 {
+        "–".to_string()
+    } else if v.grader.abs() < 1.5 {
+        "rakt".to_string()
+    } else {
+        format!("{} {:.0}°", if v.grader > 0.0 { "H" } else { "V" }, v.grader.abs())
+    };
+    let steer = (!stale && v.status == 1).then(|| (v.grader / 30.0).clamp(-1.0, 1.0));
+    Some(Tile { title: "Styrvinkel", detail, big: Some(big), color, pulsing: false, action: None, steer })
+}
+
 fn unix_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1121,11 +1214,38 @@ fn nodstopp_tile(text: Option<&str>, now: u64) -> Option<Tile> {
         (true, _) => ("kan inte läsas – kontrollera kabeln", BOX_BAD, true),
         (false, _) => ("inget svar från Car_Client", BOX_BAD, false),
     };
-    Some(Tile { title: "Nödstopp", detail: detail.into(), big: None, color, pulsing, action: None })
+    Some(Tile { title: "Nödstopp", detail: detail.into(), big: None, color, pulsing, action: None, steer: None })
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn vinkelsvaret_tolkas() {
+        // [id 4][143][OK][kalibrerad][3441 mV][-12,34°]
+        let mut p = vec![4u8, 143, 1, 1];
+        p.extend_from_slice(&3441u16.to_be_bytes());
+        p.extend_from_slice(&(-1234i32).to_be_bytes());
+        let v = parse_vinkel(&p).unwrap();
+        assert_eq!((v.status, v.kalibrerad, v.mv), (1, true, 3441));
+        assert!((v.grader + 12.34).abs() < 1e-4);
+        assert!(parse_vinkel(&p[..8]).is_none());
+        assert!(parse_vinkel(&[4, 58, 1, 1, 0, 0, 0, 0, 0, 0]).is_none());
+    }
+
+    #[test]
+    fn vinkelrutan() {
+        let ok = Vinkel { status: 1, kalibrerad: true, mv: 3441, grader: -12.3 };
+        let t = vinkel_tile(Some((ok, Duration::from_secs(1)))).unwrap();
+        assert_eq!((t.color, t.big.as_deref()), (BOX_OK, Some("V 12°")));
+        let fel = Vinkel { status: 2, ..ok };
+        assert_eq!(vinkel_tile(Some((fel, Duration::from_secs(1)))).unwrap().color, BOX_BAD);
+        let okal = Vinkel { kalibrerad: false, ..ok };
+        assert_eq!(vinkel_tile(Some((okal, Duration::from_secs(1)))).unwrap().color, BOX_WARN);
+        assert_eq!(vinkel_tile(Some((ok, Duration::from_secs(60)))).unwrap().color, BOX_IDLE);
+        assert!(vinkel_tile(Some((Vinkel { status: 0, ..ok }, Duration::from_secs(1)))).is_none());
+        assert!(vinkel_tile(None).is_none());
+    }
+
     #[test]
     fn nodstopp_rutan() {
         use super::*;

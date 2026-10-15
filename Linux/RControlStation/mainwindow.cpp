@@ -340,6 +340,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 8)); // + elektronisk differential
     mSupportedFirmwares.append(qMakePair(30, 9)); // + autopiloten styr RobAnt
     mSupportedFirmwares.append(qMakePair(30, 10)); // + styrningen fastnar inte nära rakt fram
+    mSupportedFirmwares.append(qMakePair(30, 11)); // + CMD_GET_VINKEL för statusskärmen
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
