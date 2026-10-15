@@ -342,6 +342,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 10)); // + styrningen fastnar inte nära rakt fram
     mSupportedFirmwares.append(qMakePair(30, 11)); // + CMD_GET_VINKEL för statusskärmen (krockade med 143)
     mSupportedFirmwares.append(qMakePair(30, 12)); // + CMD_GET_VINKEL på 150
+    mSupportedFirmwares.append(qMakePair(30, 13)); // + RobAnt ignorerar gamla RC_CONTROL när dosan (ADV) används
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
