@@ -54,7 +54,8 @@ static volatile int m_vesc_id = -1;
 static volatile float m_target_deg = 0.0;
 static volatile systime_t m_last_cmd = 0;
 static bool m_driving = false;
-static float m_wrong_start_err = 0.0;
+static float m_wrong_start_angle = 0.0;
+static float m_wrong_dir = 0.0;
 static systime_t m_wrong_since = 0;
 static bool m_wrong_timing = false;
 
@@ -125,24 +126,29 @@ void styrpos_update(void) {
 	}
 	duty *= m_sign;
 
-	// Fel håll: felet växer trots att motorn drivs -> stoppa och slå av läget.
-	if (!m_wrong_timing) {
+	// Fel håll: hjulen rör sig bort från målet trots att motorn drivs mot det
+	// -> stoppa och slå av läget. Mäts på vinkelns rörelse (inte på felet, som
+	// växer av sig självt när spaken dras fortare än hjulen hinner med).
+	float dir = SIGN(err);
+	if (!m_wrong_timing || dir != m_wrong_dir) {
 		m_wrong_timing = true;
+		m_wrong_dir = dir;
 		m_wrong_since = chVTGetSystemTimeX();
-		m_wrong_start_err = fabsf(err);
+		m_wrong_start_angle = frontangle;
 	} else if (chVTTimeElapsedSinceX(m_wrong_since) > MS2ST(STYRPOS_WRONG_MS)) {
-		if (fabsf(err) > m_wrong_start_err + 3.0) {
+		float moved = (frontangle - m_wrong_start_angle) * dir;	// + = mot målet
+		if (moved < -3.0) {
 			set_duty(m_vesc_id, 0.0);
 			m_driving = false;
 			m_enabled = false;
-			commands_printf("Styrning: vinkeln gick åt fel håll (fel %.1f° -> %.1f°). "
-					"Vinkelstyrningen avslagen, spaken styr motorn direkt. Kolla tecknet: styrlage tecken\n",
-					(double)m_wrong_start_err, (double)fabsf(err));
+			commands_printf("Styrning: hjulen gick %.1f° åt fel håll. Vinkelstyrningen avslagen, "
+					"spaken styr motorn direkt. Byt tecken: styrlage tecken, sedan styrlage vinkel\n",
+					(double)-moved);
 			return;
 		}
 		// Nytt mätfönster
 		m_wrong_since = chVTGetSystemTimeX();
-		m_wrong_start_err = fabsf(err);
+		m_wrong_start_angle = frontangle;
 	}
 
 	set_duty(m_vesc_id, duty);
