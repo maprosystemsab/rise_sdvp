@@ -5,8 +5,10 @@
 	hjulen går tillbaka till rakt fram av sig själva. Utan detta styr spaken
 	styrmotorns duty direkt, och hjulen blir stående där de är när spaken släpps.
 
-	Kortet driver styr-VESC:en (activity 11) mot målvinkeln med en P-regulator
-	var 10:e ms. Faller tillbaka till det gamla läget (spaken = duty) om
+	Kortet driver styr-VESC:en (activity 11) mot målvinkeln var 10:e ms: full
+	fart (max) tills det är m_zone_deg kvar, sedan sakta in linjärt från
+	m_slow_duty ner till m_min_duty vid dödbandet (önskemål 2026-10-15: snabbt
+	tillbaka, mjukt sista 10–15 %). Faller tillbaka till det gamla läget (spaken = duty) om
 	vinkelgivaren inte är OK eller inte är kalibrerad (vinkel_noll/höger/vänster),
 	eller om läget slås av med terminalkommandot `styrlage duty`.
 
@@ -48,7 +50,8 @@ extern float frontangle;
 #define STYRPOS_STALL_DEG		0.5
 #define STYRPOS_STALL_MIN_ERR	5.0
 
-static float m_kp = 0.05;			// duty per grad
+static float m_zone_deg = 4.5;		// sakta in de sista graderna (15 % av 30°)
+static float m_slow_duty = 0.2;		// duty där inbromsningen börjar
 static float m_max_duty = 0.6;
 static float m_min_duty = 0.08;		// minsta duty som rubbar styrningen
 static float m_deadband_deg = 1.0;
@@ -141,11 +144,20 @@ void styrpos_update(void) {
 		return;
 	}
 
-	float duty = m_kp * err;
-	utils_truncate_number_abs(&duty, m_max_duty);
-	if (fabsf(duty) < m_min_duty) {
-		duty = SIGN(duty) * m_min_duty;
+	float a = fabsf(err);
+	float mag;
+	if (a >= m_zone_deg) {
+		mag = m_max_duty;
+	} else {
+		float span = m_zone_deg - m_deadband_deg;
+		float t = span > 0.01 ? (a - m_deadband_deg) / span : 1.0;
+		utils_truncate_number(&t, 0.0, 1.0);
+		mag = m_min_duty + (m_slow_duty - m_min_duty) * t;
 	}
+	if (mag < m_min_duty) {
+		mag = m_min_duty;
+	}
+	float duty = SIGN(err) * mag;
 	duty *= m_sign;
 
 	// Fel håll: hjulen rör sig bort från målet trots att motorn drivs mot det
@@ -200,8 +212,10 @@ static void terminal_cmd_styrlage(int argc, const char **argv) {
 		} else if (strcmp(argv[1], "tecken") == 0) {
 			stop();
 			m_sign = -m_sign;
-		} else if (argc >= 3 && strcmp(argv[1], "kp") == 0) {
-			m_kp = (float)atof(argv[2]);
+		} else if (argc >= 3 && strcmp(argv[1], "zon") == 0) {
+			m_zone_deg = (float)atof(argv[2]);
+		} else if (argc >= 3 && strcmp(argv[1], "sakta") == 0) {
+			m_slow_duty = (float)atof(argv[2]);
 		} else if (argc >= 3 && strcmp(argv[1], "max") == 0) {
 			m_max_duty = (float)atof(argv[2]);
 		} else if (argc >= 3 && strcmp(argv[1], "min") == 0) {
@@ -209,15 +223,15 @@ static void terminal_cmd_styrlage(int argc, const char **argv) {
 		} else if (argc >= 3 && strcmp(argv[1], "dodband") == 0) {
 			m_deadband_deg = (float)atof(argv[2]);
 		} else {
-			commands_printf("Okänt: styrlage [vinkel|duty|tecken|kp X|max X|min X|dodband X]\n");
+			commands_printf("Okänt: styrlage [vinkel|duty|tecken|max X|zon X|sakta X|min X|dodband X]\n");
 			return;
 		}
 	}
-	commands_printf("Styrläge: %s%s. kp %.3f, max %.2f, min %.2f, dödband %.1f°, tecken %+.0f. "
+	commands_printf("Styrläge: %s%s. max %.2f, saktar in sista %.1f° från %.2f till %.2f, dödband %.1f°, tecken %+.0f. "
 			"Mål %.1f°, nu %.1f°. Nollställs vid omstart.\n",
 			m_enabled ? "vinkel (spaken = hjulens vinkel)" : "duty (spaken = motorns fart)",
 			(m_enabled && !styrpos_available()) ? " – givaren ej OK/kalibrerad, kör duty" : "",
-			(double)m_kp, (double)m_max_duty, (double)m_min_duty, (double)m_deadband_deg, (double)m_sign,
+			(double)m_max_duty, (double)m_zone_deg, (double)m_slow_duty, (double)m_min_duty, (double)m_deadband_deg, (double)m_sign,
 			(double)m_target_deg, (double)frontangle);
 }
 
@@ -225,8 +239,8 @@ void styrpos_init(void) {
 	terminal_register_command_callback(
 			"styrlage",
 			"Styrning: vinkel (spaken = hjulens vinkel, centrerar själv) eller duty (som förut). "
-			"Även tecken, kp X, max X, min X, dodband X.",
-			"[vinkel|duty|tecken|kp X|max X|min X|dodband X]",
+			"Även tecken, max X (full fart), zon X (grader där den saktar in), sakta X, min X, dodband X.",
+			"[vinkel|duty|tecken|max X|zon X|sakta X|min X|dodband X]",
 			terminal_cmd_styrlage);
 }
 
