@@ -60,6 +60,15 @@ static float m_min_duty = 0.08;		// minsta duty som rubbar styrningen
 static float m_deadband_deg = ANGLE_SENSOR_MAX_DEG * 0.04;
 static float m_restart_deg = ANGLE_SENSOR_MAX_DEG * 0.10;
 static volatile bool m_settled = false;	// står på målet; vänta på ny spak eller stort fel
+// Står hjulen still under inbromsningen (mer friktion när drivhjulen snurrar,
+// mk1 2026-10-15: fastnade på 2,5° med duty 0,12) ökas kraften stegvis tills de
+// rör sig igen. Nollas när målet nås eller ett nytt mål kommer.
+#define STYRPOS_BOOST_STEG		0.04
+#define STYRPOS_BOOST_MS		150
+#define STYRPOS_BOOST_RORELSE	0.2	// grader per mätperiod som räknas som rörelse
+static float m_boost = 0.0;
+static float m_boost_angle = 0.0;
+static systime_t m_boost_t = 0;
 static float m_sign = 1.0;			// +1: positiv duty ökar vinkeln (åt höger)
 static bool m_enabled = true;
 
@@ -97,6 +106,7 @@ bool styrpos_target_deg(int vesc_id, float deg) {
 	utils_truncate_number(&deg, -STYRPOS_MAX_DEG, STYRPOS_MAX_DEG);
 	if (fabsf(deg - m_target_deg) > 0.5) {
 		m_settled = false;	// nytt mål: kör dit
+		m_boost = 0.0;
 	}
 	m_target_deg = deg;
 	m_vesc_id = vesc_id;
@@ -117,6 +127,7 @@ static void stop(void) {
 	m_driving = false;
 	m_wrong_timing = false;
 	m_stall_timing = false;
+	m_boost = 0.0;
 }
 
 static void give_up(const char *why) {
@@ -155,6 +166,7 @@ void styrpos_update(void) {
 	bool reached = fabsf(err) < m_deadband_deg;
 	if (reached) {
 		m_settled = true;
+		m_boost = 0.0;
 	}
 	bool stale = chVTTimeElapsedSinceX(m_last_cmd) > MS2ST(STYRPOS_HOLD_MS);
 	bool cmd_recent = chVTTimeElapsedSinceX(m_last_cmd) < MS2ST(500);
@@ -179,11 +191,26 @@ void styrpos_update(void) {
 	float mag;
 	if (a >= m_zone_deg) {
 		mag = m_max_duty;
+		m_boost = 0.0;
+		m_boost_angle = frontangle;
+		m_boost_t = chVTGetSystemTimeX();
 	} else {
+		// Står still i inbromsningen: öka kraften stegvis.
+		if (chVTTimeElapsedSinceX(m_boost_t) > MS2ST(STYRPOS_BOOST_MS)) {
+			if (fabsf(frontangle - m_boost_angle) < STYRPOS_BOOST_RORELSE) {
+				m_boost += STYRPOS_BOOST_STEG;
+			}
+			m_boost_angle = frontangle;
+			m_boost_t = chVTGetSystemTimeX();
+		}
 		float span = m_zone_deg - m_deadband_deg;
 		float t = span > 0.01 ? (a - m_deadband_deg) / span : 1.0;
 		utils_truncate_number(&t, 0.0, 1.0);
-		mag = m_min_duty + (m_slow_duty - m_min_duty) * t;
+		mag = m_min_duty + (m_slow_duty - m_min_duty) * t + m_boost;
+		if (mag > m_max_duty) {
+			mag = m_max_duty;
+			m_boost = m_max_duty;	// håll boosten begränsad
+		}
 	}
 	if (mag < m_min_duty) {
 		mag = m_min_duty;
