@@ -343,6 +343,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 11)); // + CMD_GET_VINKEL för statusskärmen (krockade med 143)
     mSupportedFirmwares.append(qMakePair(30, 12)); // + CMD_GET_VINKEL på 150
     mSupportedFirmwares.append(qMakePair(30, 13)); // + RobAnt ignorerar gamla RC_CONTROL när dosan (ADV) används
+    mSupportedFirmwares.append(qMakePair(30, 14)); // + gasramp på RobAnts drivsidor
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
