@@ -28,6 +28,7 @@
 #include "comm_can.h"
 #include "servo_simple.h"
 #include "terminal.h"
+#include "styr_position.h"
 #include <stdio.h>
 //#include "watchdog.h"
 
@@ -511,15 +512,24 @@ void motor_handle_route_end(void) {
 //  - vändning (22) kör vänster = +v·max och höger = −v·max, med mjuk start och
 //    stopp. Bara när fartkommandot är 0. Styrkommandon ignoreras under tiden.
 //  - kommer inga vändningskommandon på VANDNING_TIMEOUT_MS rampas den ner.
+//  - med vinkelgivare (styr_position.c) ställs bakbenen först raka (0°) och
+//    hålls där under vändningen; sidorna startar först när de står raka.
+//    Utan givare stoppas bara styrcylindern, som förut.
 // ---------------------------------------------------------------------------
 #define VANDNING_TIMEOUT_MS   300
 #define VANDNING_FART_DOD     0.05f  // fartkommando under detta räknas som stillastående
+#define VANDNING_RAKT_DEG     2.0f   // bakbenen räknas som raka inom så här många grader
+#define VANDNING_CENTRERA_MS  4000   // hinner de inte bli raka på den tiden: avbryt
+
+extern float frontangle;
 
 static float m_vand_max = 0.3f;      // största duty vid vändning
 static float m_vand_ramp_s = 0.7f;   // tid från 0 till max
 static volatile float m_vand_mal = 0.0f;   // −1…+1 från dosan
 static volatile float m_vand_ut = 0.0f;    // utgående −max…+max efter rampen
 static volatile bool m_vand_aktiv = false; // sidorna drivs av vändningen just nu
+static volatile bool m_vand_centrerar = false; // väntar på att bakbenen ska bli raka
+static volatile systime_t m_vand_start = 0;
 static volatile systime_t m_vand_senast = 0;
 static volatile float m_fart_senast = 0.0f;
 static volatile systime_t m_fart_tid = 0;
@@ -548,6 +558,18 @@ static void skicka_till(uint16_t activity, float value) {
 	}
 }
 
+// Bakbenen till 0° med vinkelstyrningen. Falskt = går inte (ingen givare/kalibrering).
+static bool centrera_bakben(void) {
+	bool ok = false;
+	for (int i = 0; i < main_config.vehicle.actuators && i < 4; i++) {
+		ACTUATOR *a = &main_config.vehicle.actuator[i];
+		if (a->activity == ACT_NR_STYRNING && a->type == AT_VESCMOTOR) {
+			ok = styrpos_command(a->motorid, 0.0f) || ok;
+		}
+	}
+	return ok;
+}
+
 static void skicka_sidor(float vanster, float hoger) {
 	skicka_till(ACT_NR_FART_VANSTER, vanster);
 	skicka_till(ACT_NR_FART_HOGER, hoger);
@@ -569,6 +591,26 @@ static THD_FUNCTION(vandning_thread, arg) {
 		if (ST2MS(chVTTimeElapsedSinceX(m_vand_senast)) > VANDNING_TIMEOUT_MS) {
 			mal = 0.0f;
 			m_vand_mal = 0.0f;
+		}
+
+		// Håll bakbenen raka (förnyar målet så att vinkelstyrningen inte släpper).
+		bool kan_centrera = centrera_bakben();
+		if (m_vand_centrerar) {
+			if (mal == 0.0f) {
+				m_vand_centrerar = false;
+				m_vand_aktiv = false;
+				continue;
+			}
+			if (!kan_centrera || fabsf(frontangle) < VANDNING_RAKT_DEG) {
+				m_vand_centrerar = false; // raka (eller ingen givare): börja vända
+			} else if (ST2MS(chVTTimeElapsedSinceX(m_vand_start)) > VANDNING_CENTRERA_MS) {
+				commands_printf("Vandning: bakbenen blev inte raka (%.1f grader), avbryter", (double)frontangle);
+				m_vand_centrerar = false;
+				m_vand_aktiv = false;
+				continue;
+			} else {
+				continue; // sidorna står still medan bakbenen rätas ut
+			}
 		}
 
 		float steg = m_vand_max / (m_vand_ramp_s > 0.05f ? m_vand_ramp_s : 0.05f) * dt;
@@ -622,7 +664,11 @@ bool motor_rc_adv(uint8_t activity, float value) {
 			return true;
 		}
 		if (value != 0.0f && !m_vand_aktiv) {
-			skicka_till(ACT_NR_STYRNING, 0.0f); // stoppa styrcylindern
+			if (!centrera_bakben()) {
+				skicka_till(ACT_NR_STYRNING, 0.0f); // ingen givare: stoppa bara styrcylindern
+			}
+			m_vand_start = chVTGetSystemTimeX();
+			m_vand_centrerar = true;
 			m_vand_aktiv = true;
 		}
 		m_vand_mal = value;

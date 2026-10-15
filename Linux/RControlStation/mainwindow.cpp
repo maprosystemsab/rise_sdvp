@@ -335,6 +335,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 3)); // + autopiloten sätter körriktningen
     mSupportedFirmwares.append(qMakePair(30, 4)); // + VESC-ping och provsnurr (Robotstyrning)
     mSupportedFirmwares.append(qMakePair(30, 5)); // + självcentrerande styrning med vinkelgivaren
+    mSupportedFirmwares.append(qMakePair(30, 6)); // + bandvagnsvändning (O-knappen)
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
