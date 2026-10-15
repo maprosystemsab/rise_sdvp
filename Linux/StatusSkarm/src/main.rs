@@ -57,8 +57,9 @@ const USB_DEVICE: &str = "/dev/vehicle";
 /// ID 255 = alla, så kortet svarar oavsett vilket bil-ID Car_Client kör med.
 const CMD_AP_GET_ROUTE_PART: u8 = 58;
 const BOARD_QUERY: [u8; 7] = [255, CMD_AP_GET_ROUTE_PART, 0, 0, 0, 0, 0];
-/// Vinkelgivaren (firmware 30.11+). Bara läsning, nollställer inte kortets säkerhetstid.
-const CMD_GET_VINKEL: u8 = 143;
+/// Vinkelgivaren (firmware 30.12+). Bara läsning, nollställer inte kortets säkerhetstid.
+/// (143 är nödstoppets statuspaket från Car_Client, inte detta.)
+const CMD_GET_VINKEL: u8 = 150;
 const VINKEL_QUERY: [u8; 2] = [255, CMD_GET_VINKEL];
 
 // Färger: mörk bakgrund, rutor lite ljusare i vila.
@@ -117,7 +118,7 @@ struct Vinkel {
     grader: f32,
 }
 
-/// Tolkar ett svarspaket [id][143][status][kal][mV u16][grader*100 i32].
+/// Tolkar ett svarspaket [id][150][status][kal][mV u16][grader*100 i32].
 fn parse_vinkel(p: &[u8]) -> Option<Vinkel> {
     if p.len() < 10 || p[1] != CMD_GET_VINKEL {
         return None;
@@ -1165,7 +1166,7 @@ fn paint_ecg(painter: &egui::Painter, rect: egui::Rect, t: f32, color: egui::Col
 /// Läget som Car_Client skriver: "<ok|intryckt|sparrad|fel> <unix-tid>", varje sekund.
 const NODSTOPP_FIL: &str = "/tmp/nodstopp_status";
 
-/// Styrvinkelrutan: syns bara på maskiner med vinkelgivare (firmware 30.11+).
+/// Styrvinkelrutan: syns bara på maskiner med vinkelgivare (firmware 30.12+).
 /// Grön = givaren svarar och är kalibrerad, gul = okalibrerad, röd = ingen
 /// signal (kabel/magnet), grå = inget svar från kortet på ett tag.
 fn vinkel_tile(v: Option<(Vinkel, Duration)>) -> Option<Tile> {
@@ -1221,8 +1222,8 @@ fn nodstopp_tile(text: Option<&str>, now: u64) -> Option<Tile> {
 mod tests {
     #[test]
     fn vinkelsvaret_tolkas() {
-        // [id 4][143][OK][kalibrerad][3441 mV][-12,34°]
-        let mut p = vec![4u8, 143, 1, 1];
+        // [id 4][150][OK][kalibrerad][3441 mV][-12,34°]
+        let mut p = vec![4u8, 150, 1, 1];
         p.extend_from_slice(&3441u16.to_be_bytes());
         p.extend_from_slice(&(-1234i32).to_be_bytes());
         let v = parse_vinkel(&p).unwrap();
@@ -1230,6 +1231,8 @@ mod tests {
         assert!((v.grader + 12.34).abs() < 1e-4);
         assert!(parse_vinkel(&p[..8]).is_none());
         assert!(parse_vinkel(&[4, 58, 1, 1, 0, 0, 0, 0, 0, 0]).is_none());
+        // Nödstoppets statuspaket [id][143][läge] får aldrig tolkas som vinkel.
+        assert!(parse_vinkel(&[4, 143, 1, 1, 0, 0, 0, 0, 0, 0]).is_none());
     }
 
     #[test]

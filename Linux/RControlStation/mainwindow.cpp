@@ -340,7 +340,8 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 8)); // + elektronisk differential
     mSupportedFirmwares.append(qMakePair(30, 9)); // + autopiloten styr RobAnt
     mSupportedFirmwares.append(qMakePair(30, 10)); // + styrningen fastnar inte nära rakt fram
-    mSupportedFirmwares.append(qMakePair(30, 11)); // + CMD_GET_VINKEL för statusskärmen
+    mSupportedFirmwares.append(qMakePair(30, 11)); // + CMD_GET_VINKEL för statusskärmen (krockade med 143)
+    mSupportedFirmwares.append(qMakePair(30, 12)); // + CMD_GET_VINKEL på 150
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
@@ -8600,14 +8601,20 @@ void MainWindow::calibrateSteeringAngle()
         {"Steg 2 av 3: Styr <b>fullt höger</b> och låt hjulen stå kvar där.<br>Tryck OK.", "vinkel_hoger"},
         {"Steg 3 av 3: Styr <b>fullt vänster</b> och låt hjulen stå kvar där.<br>Tryck OK.", "vinkel_vanster"},
     };
+    // Självcentreringen (firmware 30.5+) drar annars tillbaka hjulen när man
+    // försöker hålla dem i ändläget. Spaken styr motorn direkt under kalibreringen.
+    // (Äldre firmware svarar bara "okänt kommando", ingen skada.)
+    mPacketInterface->sendTerminalCmd(id, "styrlage duty");
     for (const Steg &s: steg) {
         if (QMessageBox::question(this, "Kalibrera styrvinkel", s.text,
                                   QMessageBox::Ok | QMessageBox::Cancel) != QMessageBox::Ok) {
+            mPacketInterface->sendTerminalCmd(id, "styrlage vinkel");
             showStatusInfo("Kalibreringen avbruten. Det som redan sparats ligger kvar.", false);
             return;
         }
         mPacketInterface->sendTerminalCmd(id, s.cmd);
     }
+    mPacketInterface->sendTerminalCmd(id, "styrlage vinkel");
     mPacketInterface->sendTerminalCmd(id, "vinkel");
     QMessageBox::information(this, "Kalibrera styrvinkel",
                              "Klart. Svaren från styrkortet står i terminalen.<br>"
