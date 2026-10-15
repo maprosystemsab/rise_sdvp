@@ -346,6 +346,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 14)); // + gasramp på RobAnts drivsidor
     mSupportedFirmwares.append(qMakePair(30, 15)); // + positionsberäkningen använder vinkelgivaren
     mSupportedFirmwares.append(qMakePair(30, 16)); // + Write raderar inte vinkelkalibreringen
+    mSupportedFirmwares.append(qMakePair(30, 17)); // + vinkelstyrningen på 0,8
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
