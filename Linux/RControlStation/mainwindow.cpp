@@ -344,6 +344,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 12)); // + CMD_GET_VINKEL på 150
     mSupportedFirmwares.append(qMakePair(30, 13)); // + RobAnt ignorerar gamla RC_CONTROL när dosan (ADV) används
     mSupportedFirmwares.append(qMakePair(30, 14)); // + gasramp på RobAnts drivsidor
+    mSupportedFirmwares.append(qMakePair(30, 15)); // + positionsberäkningen använder vinkelgivaren
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
