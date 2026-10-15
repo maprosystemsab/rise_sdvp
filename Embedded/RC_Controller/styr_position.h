@@ -18,5 +18,7 @@ bool styrpos_available(void);
 bool styrpos_vinkel_giltig(void);
 // Tar hand om ett styrkommando (spakens utslag). Falskt = kör det gamla sättet.
 bool styrpos_command(int vesc_id, float magnitude);
+// Samma, men målet direkt i grader (+ = höger), t.ex. från autopiloten.
+bool styrpos_target_deg(int vesc_id, float deg);
 
 #endif /* STYR_POSITION_H_ */

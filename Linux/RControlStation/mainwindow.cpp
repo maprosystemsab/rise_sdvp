@@ -338,6 +338,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 6)); // + bandvagnsvändning (O-knappen)
     mSupportedFirmwares.append(qMakePair(30, 7)); // + snabbare självcentrering
     mSupportedFirmwares.append(qMakePair(30, 8)); // + elektronisk differential
+    mSupportedFirmwares.append(qMakePair(30, 9)); // + autopiloten styr RobAnt
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 

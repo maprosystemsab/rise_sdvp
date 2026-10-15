@@ -90,20 +90,24 @@ bool styrpos_available(void) {
 	return m_enabled && adconv_angle_sensor_ok() && adconv_angle_calibrated();
 }
 
-bool styrpos_command(int vesc_id, float magnitude) {
+bool styrpos_target_deg(int vesc_id, float deg) {
 	if (!styrpos_available()) {
 		return false;
 	}
-	float s = magnitude / STYRPOS_FULL_STICK;
-	utils_truncate_number(&s, -1.0, 1.0);
-	float target = s * STYRPOS_MAX_DEG;
-	if (fabsf(target - m_target_deg) > 0.5) {
-		m_settled = false;	// spaken har flyttats: kör mot det nya målet
+	utils_truncate_number(&deg, -STYRPOS_MAX_DEG, STYRPOS_MAX_DEG);
+	if (fabsf(deg - m_target_deg) > 0.5) {
+		m_settled = false;	// nytt mål: kör dit
 	}
-	m_target_deg = target;
+	m_target_deg = deg;
 	m_vesc_id = vesc_id;
 	m_last_cmd = chVTGetSystemTimeX();
 	return true;
+}
+
+bool styrpos_command(int vesc_id, float magnitude) {
+	float s = magnitude / STYRPOS_FULL_STICK;
+	utils_truncate_number(&s, -1.0, 1.0);
+	return styrpos_target_deg(vesc_id, s * STYRPOS_MAX_DEG);
 }
 
 static void stop(void) {
@@ -280,5 +284,6 @@ void styrpos_update(void) {}
 bool styrpos_available(void) { return false; }
 bool styrpos_vinkel_giltig(void) { return false; }
 bool styrpos_command(int vesc_id, float magnitude) { (void)vesc_id; (void)magnitude; return false; }
+bool styrpos_target_deg(int vesc_id, float deg) { (void)vesc_id; (void)deg; return false; }
 
 #endif
