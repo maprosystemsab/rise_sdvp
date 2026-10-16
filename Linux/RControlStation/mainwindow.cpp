@@ -350,6 +350,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 18)); // + knappen Autocentrering
     mSupportedFirmwares.append(qMakePair(30, 19)); // + kursen tappas inte vid backning
     mSupportedFirmwares.append(qMakePair(30, 20)); // + positionen följer GPS med RTK
+    mSupportedFirmwares.append(qMakePair(30, 21)); // + störfilter på hjulgivaren
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
