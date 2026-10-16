@@ -2243,7 +2243,23 @@ bool MainWindow::connectJoystick()
     if (SDL_NumJoysticks() < 1) {
         qDebug() << "No joysticks connected!";
     } else {
-        SDL_GameController* controller = SDL_GameControllerOpen(0);
+        // En PS4-dosa på USB syns som flera enheter ("Wireless Controller", "... Motion
+        // Sensors", "... Touchpad"), en HP-dator kan ha en accelerometer. Förut öppnades
+        // alltid nummer 0: var det rörelsesensorn blev det "Ingen dosa ansluten"
+        // (kunden med RobAnt 3, 2026-10-16). Ta första riktiga spelkontrollen.
+        int valj = -1;
+        for (int i = 0; i < SDL_NumJoysticks(); i++) {
+            const char *namn = SDL_JoystickNameForIndex(i);
+            const QString n = QString(namn ? namn : "").toLower();
+            qDebug() << "Dosa" << i << (namn ? namn : "?") << "spelkontroll:" << (bool)SDL_IsGameController(i);
+            if (!SDL_IsGameController(i) || n.contains("motion sensor") || n.contains("touchpad")
+                    || n.contains("accelerometer")) {
+                continue;
+            }
+            valj = i;
+            break;
+        }
+        SDL_GameController* controller = valj >= 0 ? SDL_GameControllerOpen(valj) : nullptr;
         if (controller) {
             qDebug() << "Game controller connected:" << SDL_GameControllerName(controller);
             mController = controller;
@@ -2258,7 +2274,7 @@ bool MainWindow::connectJoystick()
 
             connectJs=true;
         } else {
-            qDebug() << "Could not open game controller 0:" << SDL_GetError();
+            qDebug() << "Hittar ingen spelkontroll att öppna:" << SDL_GetError();
         }
     }
 #else
