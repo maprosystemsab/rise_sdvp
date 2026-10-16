@@ -2556,14 +2556,19 @@ void MapWidget::paintCar(CarInfo &carInfo,QPainter &painter,QPen &pen, QTransfor
     }
     painter.restore();
 
+    // RobAnt ritas i verklig skala: prickarna i verklig storlek också (annars ~1 m)
+    const bool robant = mCarRefAtFront.contains(carInfo.getId());
+    const double r_center = robant ? 40.0 : car_w / 15.0;
+    const double r_gps = robant ? 90.0 : car_w / 3.0;
+
     // Center
     painter.setBrush(col_center);
-    painter.drawEllipse(QPointF(x, y), car_w / 15.0, car_w / 15.0);
+    painter.drawEllipse(QPointF(x, y), r_center, r_center);
 
     // GPS Location
     painter.setBrush(col_gps);
     //        painter.drawEllipse(QPointF(x_gps, y_gps), car_w / 15.0, car_w / 15.0);
-    painter.drawEllipse(QPointF(x_gps, y_gps), car_w / 3.0, car_w / 3.0);
+    painter.drawEllipse(QPointF(x_gps, y_gps), r_gps, r_gps);
 
     // Autopilot state
     LocPoint ap_goal = carInfo.getApGoal();
