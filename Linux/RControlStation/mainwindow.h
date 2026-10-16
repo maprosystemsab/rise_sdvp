@@ -477,6 +477,12 @@ private:
     QElapsedTimer mNodstoppSenast;
     QIcon mStopIcon;
     void nodstoppVisa(int lage);
+    // Knappen Autocentrering (firmware 30.18): läget från CMD_GET_VINKEL (150),
+    // -1 okänt/inget svar, 0 ingen givare, 1 på, 2 av, 3 av p.g.a. fel, 4 för gammal firmware.
+    QPushButton *mAutoCenterButton = nullptr;
+    int mAutoCenterLage = -1;
+    QElapsedTimer mAutoCenterSenast;
+    void autoCenterVisa(int lage);
     bool gamepadAttached();
 
     // Armar (L1/L2 fram, R1/R2 bak). Skickas två vägar, varje maskin använder den

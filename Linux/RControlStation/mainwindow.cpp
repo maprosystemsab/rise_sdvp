@@ -347,6 +347,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 15)); // + positionsberäkningen använder vinkelgivaren
     mSupportedFirmwares.append(qMakePair(30, 16)); // + Write raderar inte vinkelkalibreringen
     mSupportedFirmwares.append(qMakePair(30, 17)); // + vinkelstyrningen på 0,8
+    mSupportedFirmwares.append(qMakePair(30, 18)); // + knappen Autocentrering
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
@@ -399,6 +400,35 @@ MainWindow::MainWindow(QWidget *parent) :
         angleButton->setToolTip("Vinkelgivaren: rakt fram, fullt höger och fullt vänster. Sparas i styrkortet.");
         connect(angleButton, &QPushButton::clicked, this, &MainWindow::calibrateSteeringAngle);
         statusLayout->addWidget(angleButton, 0, Qt::AlignLeft);
+        mAutoCenterButton = new QPushButton("Autocentrering", statusBox);
+        connect(mAutoCenterButton, &QPushButton::clicked, this, [this]() {
+            if (mAutoCenterLage < 1 || mAutoCenterLage > 3) {
+                return;
+            }
+            // På -> av; av eller av p.g.a. fel -> på (felet nollställs).
+            QByteArray pkt;
+            pkt.append((char)mVehicle->carId());
+            pkt.append((char)151);  // CMD_SET_AUTOCENTRERING
+            pkt.append((char)(mAutoCenterLage == 1 ? 0 : 1));
+            mPacketInterface->sendPacket(pkt);
+        });
+        statusLayout->addWidget(mAutoCenterButton, 0, Qt::AlignLeft);
+        autoCenterVisa(-1);
+        // Fråga styrkortet om läget varje sekund (CMD_GET_VINKEL är bara läsning,
+        // nollställer inte säkerhetstiden).
+        QTimer *autoCenterTimer = new QTimer(this);
+        connect(autoCenterTimer, &QTimer::timeout, this, [this]() {
+            if (mTcpClientMulti && mTcpClientMulti->isAnyConnected() && mVehicle) {
+                QByteArray pkt;
+                pkt.append((char)mVehicle->carId());
+                pkt.append((char)150);  // CMD_GET_VINKEL
+                mPacketInterface->sendPacket(pkt);
+            }
+            if (mAutoCenterLage != -1 && (!mAutoCenterSenast.isValid() || mAutoCenterSenast.elapsed() > 3500)) {
+                autoCenterVisa(-1);
+            }
+        });
+        autoCenterTimer->start(1000);
         int idx = ui->verticalLayout->indexOf(ui->verticalSpacer);
         ui->verticalLayout->insertWidget(idx < 0 ? 3 : idx, statusBox);
 
@@ -512,6 +542,11 @@ MainWindow::MainWindow(QWidget *parent) :
         if ((quint8)cmd == 143 && pkt.size() >= 3) {
             mNodstoppSenast.start();
             nodstoppVisa((quint8)pkt[2]);
+        }
+        if ((quint8)cmd == 150 && id == mVehicle->carId() && pkt.size() >= 10) {
+            // [id][150][status][kalibrerad][mV u16][grader i32][autocentrering] (30.18)
+            mAutoCenterSenast.start();
+            autoCenterVisa(pkt.size() >= 11 ? (quint8)pkt[10] : 4);
         }
     });
 
@@ -8589,6 +8624,43 @@ void MainWindow::lockGamepad(const QString &why)
         }
     }
     ui->statusBar->showMessage(why, 8000);
+}
+
+void MainWindow::autoCenterVisa(int lage)
+{
+    if (!mAutoCenterButton || lage == mAutoCenterLage) {
+        return;
+    }
+    mAutoCenterLage = lage;
+    QString text = "Autocentrering";
+    QString tip;
+    QString stil;
+    switch (lage) {
+    case 1:
+        stil = "QPushButton { background-color: #2e9d3a; color: white; font-weight: bold; }";
+        tip = "PÅ: spaken = hjulens vinkel, hjulen går tillbaka rakt fram själva.\nKlicka för att slå av (sparas i roboten).";
+        break;
+    case 2:
+        tip = "AV: spaken styr styrmotorn direkt.\nKlicka för att slå på (sparas i roboten).";
+        break;
+    case 3:
+        text = "Autocentrering (fel)";
+        tip = "AV p.g.a. fel på vinkelgivaren eller styrningen (orsaken står i terminalen).\nKlicka för att slå på igen.";
+        break;
+    case 0:
+        tip = "Roboten har ingen kalibrerad vinkelgivare.";
+        break;
+    case 4:
+        tip = "Kräver firmware 30.18 eller senare.";
+        break;
+    default:
+        tip = "Inget svar från roboten.";
+        break;
+    }
+    mAutoCenterButton->setText(text);
+    mAutoCenterButton->setStyleSheet(stil);
+    mAutoCenterButton->setToolTip(tip);
+    mAutoCenterButton->setEnabled(lage >= 1 && lage <= 3);
 }
 
 // Vinkelgivaren (firmware 30.4): tre steg, varje steg sparas i styrkortet med
