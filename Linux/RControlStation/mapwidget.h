@@ -142,6 +142,10 @@ public:
     void setAntialiasOsm(bool antialias);
     bool getDrawOpenStreetmap() const;
     void setDrawOpenStreetmap(bool drawOpenStreetmap);
+    // Flygfotot flyttat (m öster, m norr): ESRI-fotona ligger ofta 1–3 m fel mot RTK.
+    void setOsmOffset(double east, double north);
+    double getOsmOffsetEast() const { return mOsmOffsetE; }
+    double getOsmOffsetNorth() const { return mOsmOffsetN; }
     void setEnuRef(double lat, double lon, double height);
     void getEnuRef(double *llh);
     double getOsmRes() const;
@@ -289,6 +293,8 @@ private:
     int mOsmZoomLevel;
     int mOsmMaxZoomLevel;
     bool mDrawOpenStreetmap;
+    double mOsmOffsetE = 0.0;
+    double mOsmOffsetN = 0.0;
     bool mDrawOsmStats;
     double mRefLat;
     double mRefLon;

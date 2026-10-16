@@ -1932,6 +1932,13 @@ bool MapWidget::getDrawOpenStreetmap() const
     return mDrawOpenStreetmap;
 }
 
+void MapWidget::setOsmOffset(double east, double north)
+{
+    mOsmOffsetE = east;
+    mOsmOffsetN = north;
+    update();
+}
+
 void MapWidget::setDrawOpenStreetmap(bool drawOpenStreetmap)
 {
     mDrawOpenStreetmap = drawOpenStreetmap;
@@ -2668,8 +2675,8 @@ void MapWidget::paintTiles(QPainter &painter,const double cx, const double cy, c
         for (int i = 0;i < 40;i++) {
             int xt_i = xt + i - t_ofs_x;
             int yt_i = yt + j - t_ofs_y;
-            double ts_x = xyz[0] + w * i - (double)t_ofs_x * w;
-            double ts_y = -xyz[1] + w * j - (double)t_ofs_y * w;
+            double ts_x = xyz[0] + w * i - (double)t_ofs_x * w + mOsmOffsetE;
+            double ts_y = -xyz[1] + w * j - (double)t_ofs_y * w - mOsmOffsetN;
 
             // We are outside the view
             if (ts_x > (cx + view_w / 2.0)) {

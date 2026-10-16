@@ -451,6 +451,7 @@ private:
     bool mAutoEnuRefPending = false;
     void applyAutoEnuRef(double lat, double lon, double height);
     void saveMapPosition(double lat, double lon);
+    void adjustMapOffset();
     QElapsedTimer mGgaAge;                  // Tid sedan senaste GGA från RTK-strömmen
     QElapsedTimer mStateAge;                // Tid sedan senaste statuspaket från bilen
     void updateStatusBox();

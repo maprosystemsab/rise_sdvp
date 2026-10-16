@@ -418,6 +418,10 @@ MainWindow::MainWindow(QWidget *parent) :
         });
         statusLayout->addWidget(mAutoCenterButton, 0, Qt::AlignLeft);
         autoCenterVisa(-1);
+        QPushButton *mapOffsetButton = new QPushButton("Justera flygfoto…", statusBox);
+        mapOffsetButton->setToolTip("Flytta flygfotot så att det stämmer med RTK-positionen (fotona ligger ofta 1–3 m fel)");
+        connect(mapOffsetButton, &QPushButton::clicked, this, &MainWindow::adjustMapOffset);
+        statusLayout->addWidget(mapOffsetButton, 0, Qt::AlignLeft);
         // Fråga styrkortet om läget varje sekund (CMD_GET_VINKEL är bara läsning,
         // nollställer inte säkerhetstiden).
         QTimer *autoCenterTimer = new QTimer(this);
@@ -458,6 +462,8 @@ MainWindow::MainWindow(QWidget *parent) :
             ui->mapLiveWidget->moveView(0.0, 0.0);
             qDebug() << "Kartan startar på senaste position:" << lat << lon;
         }
+        ui->mapLiveWidget->setOsmOffset(s.value("fotoOster", 0.0).toDouble(),
+                                        s.value("fotoNorr", 0.0).toDouble());
     }
 
     // Redskapets mått (arbetsbredd = avstånd mellan körningarna i ZigZag, och GL-fill)
@@ -2930,6 +2936,57 @@ void MainWindow::applyAutoEnuRef(double lat, double lon, double height)
     ui->mapLiveWidget->setFollowCar(car);
 
     saveMapPosition(lat, lon);
+}
+
+// Flygfotot (ESRI) ligger ofta 1–3 m fel mot RTK: på mk1 körde autopiloten exakt
+// på linjen men linjen var ritad 2 m fel efter fotot (2026-10-16). Ställ roboten på
+// en tydlig plats och flytta fotot tills den ligger rätt även på kartan.
+void MainWindow::adjustMapOffset()
+{
+    MapWidget *map = ui->mapLiveWidget;
+    const double gammalE = map->getOsmOffsetEast();
+    const double gammalN = map->getOsmOffsetNorth();
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Justera flygfoto");
+    QFormLayout *form = new QFormLayout(&dlg);
+    QLabel *info = new QLabel("Ställ roboten på en tydlig plats (t.ex. mitt på vägen) och flytta\n"
+                              "fotot tills roboten ligger på samma plats på kartan.\n"
+                              "Banor och robotens position påverkas inte, bara fotot.", &dlg);
+    form->addRow(info);
+    QDoubleSpinBox *oster = new QDoubleSpinBox(&dlg);
+    QDoubleSpinBox *norr = new QDoubleSpinBox(&dlg);
+    for (QDoubleSpinBox *b : {oster, norr}) {
+        b->setRange(-50.0, 50.0);
+        b->setDecimals(2);
+        b->setSingleStep(0.1);
+        b->setSuffix(" m");
+    }
+    oster->setValue(gammalE);
+    norr->setValue(gammalN);
+    form->addRow("Flytta öster (minus = väster):", oster);
+    form->addRow("Flytta norr (minus = söder):", norr);
+    auto visa = [map, oster, norr]() { map->setOsmOffset(oster->value(), norr->value()); };
+    connect(oster, QOverload<double>::of(&QDoubleSpinBox::valueChanged), &dlg, visa);
+    connect(norr, QOverload<double>::of(&QDoubleSpinBox::valueChanged), &dlg, visa);
+    QDialogButtonBox *knappar = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel
+                                                     | QDialogButtonBox::Reset, &dlg);
+    connect(knappar->button(QDialogButtonBox::Reset), &QPushButton::clicked, &dlg, [oster, norr]() {
+        oster->setValue(0.0);
+        norr->setValue(0.0);
+    });
+    connect(knappar, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(knappar, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(knappar);
+    dlg.move(mapToGlobal(QPoint(20, 80)));  // vid sidan så att kartan syns
+
+    if (dlg.exec() == QDialog::Accepted) {
+        QSettings s("RControlStation", "karta");
+        s.setValue("fotoOster", oster->value());
+        s.setValue("fotoNorr", norr->value());
+    } else {
+        map->setOsmOffset(gammalE, gammalN);
+    }
 }
 
 void MainWindow::saveMapPosition(double lat, double lon)
