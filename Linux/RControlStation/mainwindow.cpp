@@ -349,6 +349,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 17)); // + vinkelstyrningen på 0,8
     mSupportedFirmwares.append(qMakePair(30, 18)); // + knappen Autocentrering
     mSupportedFirmwares.append(qMakePair(30, 19)); // + kursen tappas inte vid backning
+    mSupportedFirmwares.append(qMakePair(30, 20)); // + positionen följer GPS med RTK
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
