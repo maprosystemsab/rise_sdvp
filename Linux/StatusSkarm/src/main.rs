@@ -53,6 +53,8 @@ const BOARD_REPLY_ADDR: &str = "127.0.0.1:8301";
 /// 8301 och läses av en andra instans (t.ex. `--text` över ssh).
 const BOARD_SHARED_FILE: &str = "/tmp/statusskarm_styrkort_svar";
 const RTKRCV_NMEA_ADDR: &str = "127.0.0.1:2948";
+/// Skrivs av robot-control/scripts/rtk_bas.py (car_rtk.service).
+const RTK_BAS_FIL: &str = "/run/rtk_bas.json";
 const USB_DEVICE: &str = "/dev/vehicle";
 /// ID 255 = alla, så kortet svarar oavsett vilket bil-ID Car_Client kör med.
 const CMD_AP_GET_ROUTE_PART: u8 = 58;
@@ -447,6 +449,13 @@ fn spawn_gga_reader(status: Arc<Mutex<Status>>) {
     });
 }
 
+/// Läget ur rtk_bas.py:s statusfil, t.ex. {"lage": "vantar_gps", ...}.
+fn rtk_bas_lage(text: Option<&str>) -> Option<String> {
+    let rest = text?.split("\"lage\"").nth(1)?;
+    let v = rest.split('"').nth(1)?;
+    Some(v.to_string())
+}
+
 /// Fix-kvaliteten (sjätte fältet) ur en $GxGGA-mening, t.ex. $GNGGA eller $GPGGA.
 fn parse_gga_quality(line: &str) -> Option<u8> {
     let line = line.trim();
@@ -605,7 +614,20 @@ impl App {
         }
         tiles.push(internet);
 
-        tiles.push(self.service_tile("RTK-tjänst", st.rtk_service_ok, Action::RestartRtk));
+        let mut rtk = self.service_tile("RTK-tjänst", st.rtk_service_ok, Action::RestartRtk);
+        if st.rtk_service_ok && !self.restarting(Action::RestartRtk) {
+            // rtk_bas.py (robot-control): Swepos kopplas upp först när roboten har
+            // en egen GPS-position, så att basen hamnar där roboten står.
+            match rtk_bas_lage(std::fs::read_to_string(RTK_BAS_FIL).ok().as_deref()).as_deref() {
+                Some("vantar_gps") => {
+                    rtk.detail = "väntar på GPS-position".into();
+                    rtk.color = BOX_WARN;
+                }
+                Some("ansluten") => rtk.detail = "Swepos, bas här".into(),
+                _ => {}
+            }
+        }
+        tiles.push(rtk);
 
         let q = st.fix_quality;
         let fix = q == Some(4);
@@ -1220,6 +1242,14 @@ fn nodstopp_tile(text: Option<&str>, now: u64) -> Option<Tile> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rtk_bas_lage_tolkas() {
+        use super::rtk_bas_lage;
+        assert_eq!(rtk_bas_lage(Some(r#"{"lage": "vantar_gps", "tid": 1}"#)).as_deref(), Some("vantar_gps"));
+        assert_eq!(rtk_bas_lage(Some(r#"{"lage": "ansluten", "tid": 1, "lat": 57.7}"#)).as_deref(), Some("ansluten"));
+        assert_eq!(rtk_bas_lage(None), None);
+    }
+
     #[test]
     fn vinkelsvaret_tolkas() {
         // [id 4][150][OK][kalibrerad][3441 mV][-12,34°]
