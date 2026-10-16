@@ -1939,6 +1939,19 @@ void MapWidget::setOsmOffset(double east, double north)
     update();
 }
 
+void MapWidget::setCarRefAtFront(int car, bool front)
+{
+    if (front == mCarRefAtFront.contains(car)) {
+        return;
+    }
+    if (front) {
+        mCarRefAtFront.insert(car);
+    } else {
+        mCarRefAtFront.remove(car);
+    }
+    update();
+}
+
 void MapWidget::setDrawOpenStreetmap(bool drawOpenStreetmap)
 {
     mDrawOpenStreetmap = drawOpenStreetmap;
@@ -2474,6 +2487,11 @@ void MapWidget::paintCar(CarInfo &carInfo,QPainter &painter,QPen &pen, QTransfor
     painter.save();
     painter.translate(x, y);
     painter.rotate(-angle);
+    // RobAnt: positionen (och rosa GPS-punkten) är framaxelns mitt. Flytta ritningen
+    // bakåt så att framhjulen hamnar där, i stället för bakhjulen som på MacBot.
+    if (mCarRefAtFront.contains(carInfo.getId())) {
+        painter.translate(-(car_len - car_len / 2.5 + car_len / 12.0), 0);
+    }
     // Wheels
     painter.drawRoundedRect(-car_len / 12.0,-(car_w / 2), car_len / 6.0, car_w, car_corner / 3, car_corner / 3);
     painter.drawRoundedRect(car_len - car_len / 2.5,-(car_w / 2), car_len / 6.0, car_w, car_corner / 3, car_corner / 3);

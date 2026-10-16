@@ -452,6 +452,7 @@ private:
     void applyAutoEnuRef(double lat, double lon, double height);
     void saveMapPosition(double lat, double lon);
     void adjustMapOffset();
+    bool isRobAnt(const QString &ip) const;
     QElapsedTimer mGgaAge;                  // Tid sedan senaste GGA från RTK-strömmen
     QElapsedTimer mStateAge;                // Tid sedan senaste statuspaket från bilen
     void updateStatusBox();

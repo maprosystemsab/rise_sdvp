@@ -19,6 +19,7 @@
 #define MAPWIDGET_H
 
 #include <QWidget>
+#include <QSet>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QBrush>
@@ -144,6 +145,8 @@ public:
     void setDrawOpenStreetmap(bool drawOpenStreetmap);
     // Flygfotot flyttat (m öster, m norr): ESRI-fotona ligger ofta 1–3 m fel mot RTK.
     void setOsmOffset(double east, double north);
+    // RobAnt styr med bakhjulen: positionen är framaxelns mitt, bilen ritas bakåt från den.
+    void setCarRefAtFront(int car, bool front);
     double getOsmOffsetEast() const { return mOsmOffsetE; }
     double getOsmOffsetNorth() const { return mOsmOffsetN; }
     void setEnuRef(double lat, double lon, double height);
@@ -294,6 +297,7 @@ private:
     int mOsmMaxZoomLevel;
     bool mDrawOpenStreetmap;
     double mOsmOffsetE = 0.0;
+    QSet<int> mCarRefAtFront;
     double mOsmOffsetN = 0.0;
     bool mDrawOsmStats;
     double mRefLat;

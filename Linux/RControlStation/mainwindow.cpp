@@ -2601,6 +2601,9 @@ void MainWindow::updateStatusBox()
             mVehicleMachine = machine;
             mVehicle->setConfig(VehicleConfig::load(machine));
         }
+        if (connected) {
+            ui->mapLiveWidget->setCarRefAtFront(mVehicle->carId(), isRobAnt(machine));
+        }
         mVehicle->tick(connected);
         if (connected && mStateAge.isValid() && mStateAge.elapsed() < 3000) {
             if (mVehicle->wantAngleQuery()) {
@@ -8757,6 +8760,33 @@ void MainWindow::calibrateSteeringAngle()
     QMessageBox::information(this, "Kalibrera styrvinkel",
                              "Klart. Svaren från styrkortet står i terminalen.<br>"
                              "Rakt fram = 0°, fullt höger = +30°, fullt vänster = −30°.");
+}
+
+// RobAnt (styr med bakhjulen) känns igen på namnet eller fordonstypen i maskinlistan.
+bool MainWindow::isRobAnt(const QString &ip) const
+{
+    if (ip.isEmpty()) {
+        return false;
+    }
+    for (int r = 0; r < ui->machinesTable->rowCount(); r++) {
+        QTableWidgetItem *n = ui->machinesTable->item(r, 0);
+        QTableWidgetItem *i = ui->machinesTable->item(r, 1);
+        if (n && i && i->text().trimmed() == ip && n->text().contains("robant", Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    if (machinesModel) {
+        for (int r = 0; r < machinesModel->rowCount(); r++) {
+            if (machinesModel->index(r, 1).data().toString().trimmed() != ip) {
+                continue;
+            }
+            if (machinesModel->index(r, 0).data().toString().contains("robant", Qt::CaseInsensitive)
+                    || machinesModel->index(r, 2).data().toString().contains("robant", Qt::CaseInsensitive)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 void MainWindow::openVehicleSettings()
