@@ -464,6 +464,10 @@ MainWindow::MainWindow(QWidget *parent) :
         }
         ui->mapLiveWidget->setOsmOffset(s.value("fotoOster", 0.0).toDouble(),
                                         s.value("fotoNorr", 0.0).toDouble());
+        // Rutnätet: av som standard, annars som man lämnade det.
+        const bool rutnat = s.value("rutnat", false).toBool();
+        ui->mapDrawGridBox->setChecked(rutnat);
+        ui->mapLiveWidget->setDrawGrid(rutnat);
     }
 
     // Redskapets mått (arbetsbredd = avstånd mellan körningarna i ZigZag, och GL-fill)
@@ -7799,6 +7803,7 @@ void MainWindow::on_mapOsmMaxZoomBox_valueChanged(int arg1)
 void MainWindow::on_mapDrawGridBox_toggled(bool checked)
 {
     ui->mapLiveWidget->setDrawGrid(checked);
+    QSettings("RControlStation", "karta").setValue("rutnat", checked);
 }
 
 void MainWindow::on_mapGetEnuButton_clicked()
