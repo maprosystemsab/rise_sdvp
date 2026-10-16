@@ -2259,6 +2259,11 @@ bool MainWindow::connectJoystick()
             valj = i;
             break;
         }
+        for (int i = 0; valj < 0 && i < SDL_NumJoysticks(); i++) {
+            if (SDL_IsGameController(i)) {
+                valj = i;   // ingen med bra namn: första spelkontrollen, som förut
+            }
+        }
         SDL_GameController* controller = valj >= 0 ? SDL_GameControllerOpen(valj) : nullptr;
         if (controller) {
             qDebug() << "Game controller connected:" << SDL_GameControllerName(controller);
