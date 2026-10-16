@@ -335,6 +335,7 @@ private:
     void paintTiles(QPainter &painter,const double cx, const double cy, const double view_w, const double view_h, bool highQuality);
     void paintGrid(QPainter &painter,QPen &pen, QTransform drawTrans, QTransform txtTrans, int width,int height, double stepGrid,QString txt, QPointF pt_txt,const QColor textColor, const QColor zeroAxisColor,const QColor firstAxisColor,const QColor secondAxisColor,const double zeroAxisWidth);
     void paintCar(CarInfo &carInfo,QPainter &painter,QPen &pen, QTransform drawTrans, QTransform txtTrans,QString &txt, QPointF &pt_txt,const QColor &textColor,QRectF &rect_txt);
+    void paintRobAnt(QPainter &painter, const QColor &hull, const QColor &wheels, const QColor &front);
     void paintAnchor(LocPoint &anchor,QPainter &painter,QPen &pen, QTransform drawTrans, QTransform txtTrans,QString &txt, QPointF &pt_txt,const QColor &textColor,QRectF &rect_txt);
     void paintTrace(QList<LocPoint> &itNow,QPainter &painter,QPen &pen, bool isActive, QTransform drawTrans, QTransform txtTrans,const double cx, const double cy, const double view_w, const double view_h,int& info_segments, int& info_points);
     void paintCarTraces(QPainter &painter,QPen &pen, QTransform drawTrans);

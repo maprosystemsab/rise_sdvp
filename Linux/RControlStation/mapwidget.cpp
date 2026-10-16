@@ -1939,6 +1939,60 @@ void MapWidget::setOsmOffset(double east, double north)
     update();
 }
 
+/**
+ * RobAnt ovanifrån i verklig skala (mm), x framåt, y vänster, origo = framaxelns mitt
+ * (positionen autopiloten styr efter). Mått mk1 2026-10-16: längd 1,9 m, bredd 1,35 m,
+ * axelavstånd 1,42 m, hjulinfästningar 1,24 m isär, hjul Ø 0,46 m. Kroppen går tvärs
+ * mellan sidorna (nödstopp och GPS-antenn på vänster sida), fyra ben ut till hjulen.
+ * Bakhjulen styr.
+ */
+void MapWidget::paintRobAnt(QPainter &painter, const QColor &hull, const QColor &wheels, const QColor &front)
+{
+    const double axel = 1420.0;			// axelavstånd
+    const double hjulY = 565.0;			// hjulmitt i sidled (bredd 1350 - hjulbredd 220)
+    const double hjulL = 460.0, hjulB = 220.0;
+    const double mittX = -axel / 2.0;
+    const double faste = 620.0;			// hjulinfästningarna 1240 isär
+    painter.save();
+    QPen penna(QColor(40, 40, 40));
+    penna.setWidthF(15.0);
+    penna.setCosmetic(false);
+    painter.setPen(penna);
+
+    // Ben: från kroppen ut till hjulen, på båda sidor
+    painter.setBrush(QColor(170, 170, 160));
+    for (double sida : {1.0, -1.0}) {
+        painter.drawRect(QRectF(mittX - axel / 2.0, sida * (faste - 70.0) - 45.0, axel, 90.0));
+    }
+    // Hjul
+    painter.setBrush(wheels);
+    for (double hx : {0.0, -axel}) {
+        for (double sida : {1.0, -1.0}) {
+            painter.drawRoundedRect(QRectF(hx - hjulL / 2.0, sida * hjulY - hjulB / 2.0, hjulL, hjulB), 60, 60);
+        }
+    }
+    // Ramen tvärs (två balkar) och lådorna i ändarna
+    painter.setBrush(QColor(170, 170, 160));
+    painter.drawRect(QRectF(mittX - 170.0, -faste + 60.0, 50.0, 2 * faste - 120.0));
+    painter.drawRect(QRectF(mittX + 120.0, -faste + 60.0, 50.0, 2 * faste - 120.0));
+    painter.setBrush(hull);
+    painter.drawRect(QRectF(mittX - 230.0, faste - 260.0, 460.0, 220.0));	// vänster: batteri
+    painter.drawRect(QRectF(mittX - 230.0, -faste + 40.0, 460.0, 260.0));	// höger
+    painter.setBrush(QColor(220, 220, 215));
+    painter.drawRect(QRectF(mittX - 150.0, 30.0, 300.0, 240.0));			// elskåpet
+    // Nödstopp (gult med röd knapp) längst ut på vänster sida
+    painter.setBrush(QColor(240, 200, 0));
+    painter.drawRect(QRectF(mittX - 110.0, faste - 40.0, 220.0, 120.0));
+    painter.setBrush(QColor(200, 0, 0));
+    painter.drawEllipse(QPointF(mittX, faste + 20.0), 40.0, 40.0);
+    // Fram: grön pil på framaxeln
+    painter.setBrush(front);
+    QPolygonF pil;
+    pil << QPointF(150.0, 0.0) << QPointF(-60.0, 110.0) << QPointF(-60.0, -110.0);
+    painter.drawPolygon(pil);
+    painter.restore();
+}
+
 void MapWidget::setCarRefAtFront(int car, bool front)
 {
     if (front == mCarRefAtFront.contains(car)) {
@@ -2487,11 +2541,9 @@ void MapWidget::paintCar(CarInfo &carInfo,QPainter &painter,QPen &pen, QTransfor
     painter.save();
     painter.translate(x, y);
     painter.rotate(-angle);
-    // RobAnt: positionen (och rosa GPS-punkten) är framaxelns mitt. Flytta ritningen
-    // bakåt så att framhjulen hamnar där, i stället för bakhjulen som på MacBot.
     if (mCarRefAtFront.contains(carInfo.getId())) {
-        painter.translate(-(car_len - car_len / 2.5 + car_len / 12.0), 0);
-    }
+        paintRobAnt(painter, col_hull, col_wheels, col_bumper);
+    } else {
     // Wheels
     painter.drawRoundedRect(-car_len / 12.0,-(car_w / 2), car_len / 6.0, car_w, car_corner / 3, car_corner / 3);
     painter.drawRoundedRect(car_len - car_len / 2.5,-(car_w / 2), car_len / 6.0, car_w, car_corner / 3, car_corner / 3);
@@ -2501,6 +2553,7 @@ void MapWidget::paintCar(CarInfo &carInfo,QPainter &painter,QPen &pen, QTransfor
     // Hull
     painter.setBrush(col_hull);
     painter.drawRoundedRect(-car_len / 6.0, -((car_w - car_len / 20.0) / 2.0), car_len - (car_len / 20.0), car_w - car_len / 20.0, car_corner, car_corner);
+    }
     painter.restore();
 
     // Center
