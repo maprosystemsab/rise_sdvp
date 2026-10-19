@@ -352,6 +352,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 20)); // + positionen följer GPS med RTK
     mSupportedFirmwares.append(qMakePair(30, 21)); // + störfilter på hjulgivaren
     mSupportedFirmwares.append(qMakePair(30, 22)); // + autopiloten drar in sidofel
+    mSupportedFirmwares.append(qMakePair(30, 23)); // + avstudsad hjulgivare
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
