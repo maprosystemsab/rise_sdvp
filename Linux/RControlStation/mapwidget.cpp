@@ -1971,15 +1971,12 @@ void MapWidget::paintRobAnt(QPainter &painter, const QColor &hull, const QColor 
             painter.drawRoundedRect(QRectF(hx - hjulL / 2.0, sida * hjulY - hjulB / 2.0, hjulL, hjulB), 60, 60);
         }
     }
-    // Ramen tvärs (två balkar) och lådorna i ändarna
-    painter.setBrush(QColor(170, 170, 160));
-    painter.drawRect(QRectF(mittX - 170.0, -faste + 60.0, 50.0, 2 * faste - 120.0));
-    painter.drawRect(QRectF(mittX + 120.0, -faste + 60.0, 50.0, 2 * faste - 120.0));
+    // Ett heltäckande lock mellan hjulen, som på mk2 (syns bättre på kartan än
+    // mk1:s ram med två lådor)
+    const double lockX = axel - hjulL - 80.0;	// fri längd mellan hjulen, lite marginal
+    const double lockY = 2 * (hjulY - hjulB / 2.0) - 60.0;
     painter.setBrush(hull);
-    painter.drawRect(QRectF(mittX - 230.0, faste - 260.0, 460.0, 220.0));	// vänster: batteri
-    painter.drawRect(QRectF(mittX - 230.0, -faste + 40.0, 460.0, 260.0));	// höger
-    painter.setBrush(QColor(220, 220, 215));
-    painter.drawRect(QRectF(mittX - 150.0, 30.0, 300.0, 240.0));			// elskåpet
+    painter.drawRoundedRect(QRectF(mittX - lockX / 2.0, -lockY / 2.0, lockX, lockY), 60, 60);
     // Nödstopp (gult med röd knapp) längst ut på vänster sida
     painter.setBrush(QColor(240, 200, 0));
     painter.drawRect(QRectF(mittX - 110.0, faste - 40.0, 220.0, 120.0));
