@@ -32,6 +32,7 @@ AUTOSTART="$HOME/.config/autostart/statusskarm.desktop"
 KIOSK_TJANST=/etc/systemd/system/statusskarm-kiosk.service
 KIOSK_VILLKOR=/usr/local/bin/statusskarm-har-skarm
 TOUCH_REGEL=/etc/udev/rules.d/99-statusskarm-touch.rules
+BAKLJUS_REGEL=/etc/udev/rules.d/99-zz-statusskarm-bakljus.rules
 CONFIG=/boot/firmware/config.txt
 CMDLINE=/boot/firmware/cmdline.txt
 KIOSK=0
@@ -44,7 +45,7 @@ while [ $# -gt 0 ]; do
       pkill -x statusskarm || true
       if [ -f "$KIOSK_TJANST" ]; then
         sudo systemctl disable --now statusskarm-kiosk.service || true
-        sudo rm -f "$KIOSK_TJANST" "$KIOSK_VILLKOR" "$TOUCH_REGEL"
+        sudo rm -f "$KIOSK_TJANST" "$KIOSK_VILLKOR" "$TOUCH_REGEL" "$BAKLJUS_REGEL"
         sudo systemctl daemon-reload
       fi
       rm -f "$AUTOSTART" "$HOME/.local/bin/statusskarm" "$HOME/.local/bin/statusskarm-loop"
@@ -126,6 +127,12 @@ CFG
     esac
     echo "ENV{ID_INPUT_TOUCHSCREEN}==\"1\", ENV{LIBINPUT_CALIBRATION_MATRIX}=\"$MATRIS\"" | sudo tee "$TOUCH_REGEL" >/dev/null
   fi
+
+  # Skärmens bakljus-regulator (I2C 0x45) binds av drivrutinen även utan skärm, och då
+  # misslyckas systemd-backlight och systemet blir "degraded". Ljusstyrkan behöver inte sparas.
+  # Filnamnet sorterar efter 99-systemd.rules, så regeln tar bort det den lade till.
+  echo 'SUBSYSTEM=="backlight", KERNEL=="*-0045", ENV{SYSTEMD_WANTS}=""' | sudo tee "$BAKLJUS_REGEL" >/dev/null
+  sudo systemctl reset-failed 'systemd-backlight@*' 2>/dev/null || true
 
   echo "--- cage (minimal Wayland för en app i helskärm) ---"
   command -v cage >/dev/null || sudo apt-get install -y cage
