@@ -163,6 +163,12 @@ private slots:
     void onSelectedFieldGeneral(QStandardItemModel *model, QStandardItemModel *modelPth, const QModelIndex& current, const QModelIndex& previous);
     void on_listLogFilesView_clicked(const QModelIndex& index);
     void onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item);
+    
+    // File Administration tab slots
+    void setupFileAdminTab();
+    void onFileAdminFarmSelected(int index);
+    void onFileAdminFieldSelected(int index);
+    void onFileAdminActionButtonClicked();
 
 
     void handleAddFieldButton();
@@ -185,6 +191,8 @@ private slots:
     void parseAllFarmsXmlForLog(const QByteArray &xmlData);
     void fetchFieldsForLogFarm(int farmId);
     void parseAllFieldsXmlForLog(const QByteArray &xmlData);
+    void fetchFieldsForFileAdminFarm(int farmId);
+    void parseFieldsForFileAdminFarmXml(const QByteArray &xmlData);
     void fetchPathsForLogField(int fieldId);
     void parseAllPathsXmlForLog(const QByteArray &xmlData);
     void fetchLogsForPath(int pathId);

@@ -259,12 +259,10 @@ void MapRoute::paintLine(int i, bool isSelected, bool isAnalysed, QPainter &pain
 
 void MapRoute::paintPoint(QPointF p, quint32 attr, bool isSelected, bool isAnalysed, QPainter &painter, QPen &pen, double mScaleFactor, QTransform drawTrans, bool highQuality, int selectedActionAttribute, bool isControlSelected)
 {
-        qDebug() << "paintPoint called, isControlSelected:" << isControlSelected;
     // qDebug() << "MapRoute::paintPoint called with selectedActionAttribute:" << selectedActionAttribute << "isSelected:" << isSelected << "attr:" << attr;
     painter.setTransform(drawTrans);
 
     if (highQuality) {
-        qDebug() << "high quality";
         if (isAnalysed)
         {
             qDebug() << "show analysis point";
@@ -308,7 +306,6 @@ void MapRoute::paintPoint(QPointF p, quint32 attr, bool isSelected, bool isAnaly
         painter.drawEllipse(p, 10.0 / mScaleFactor,
                             10.0 / mScaleFactor);
     } else {
-        qDebug() << "low quality";
         // qDebug() << "low quality value: " << attr;
         // Use simplified logic for low quality as well
         int circleType = 1; // default (gray)
