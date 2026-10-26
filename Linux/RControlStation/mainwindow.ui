@@ -4240,7 +4240,7 @@
           <item>
            <widget class="QPushButton" name="pushButtonFileAdminAction">
             <property name="text">
-             <string>Action</string>
+             <string>Add to database</string>
             </property>
            </widget>
           </item>
