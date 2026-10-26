@@ -191,6 +191,10 @@ private slots:
     void parseAllFarmsXmlForLog(const QByteArray &xmlData);
     void fetchFieldsForLogFarm(int farmId);
     void parseAllFieldsXmlForLog(const QByteArray &xmlData);
+    void fetchFieldsForFileAdminFarm(int farmId);
+    void parseFieldsForFileAdminFarmXml(const QByteArray &xmlData);
+    void fetchPathsForFileAdminField(int fieldId);
+    void parsePathsForFileAdminFieldXml(const QByteArray &xmlData);
     void fetchPathsForLogField(int fieldId);
     void parseAllPathsXmlForLog(const QByteArray &xmlData);
     void fetchLogsForPath(int pathId);
