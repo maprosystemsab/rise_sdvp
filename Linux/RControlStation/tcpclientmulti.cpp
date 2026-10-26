@@ -32,6 +32,17 @@ void TcpClientMulti::addConnection(QString ip, int port)
     mTcpConns.append(new TcpConn(ip, port, this));
 }
 
+QString TcpClientMulti::connectedIp()
+{
+    for (auto c: mTcpConns) {
+        if (c->isTcpConnected()) {
+            return c->ip();
+        }
+    }
+
+    return QString();
+}
+
 bool TcpClientMulti::isAnyConnected()
 {
     for (auto c: mTcpConns) {

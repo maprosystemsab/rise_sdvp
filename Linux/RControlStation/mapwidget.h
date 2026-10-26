@@ -19,6 +19,7 @@
 #define MAPWIDGET_H
 
 #include <QWidget>
+#include <QSet>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QBrush>
@@ -142,6 +143,12 @@ public:
     void setAntialiasOsm(bool antialias);
     bool getDrawOpenStreetmap() const;
     void setDrawOpenStreetmap(bool drawOpenStreetmap);
+    // Flygfotot flyttat (m öster, m norr): ESRI-fotona ligger ofta 1–3 m fel mot RTK.
+    void setOsmOffset(double east, double north);
+    // RobAnt styr med bakhjulen: positionen är framaxelns mitt, bilen ritas bakåt från den.
+    void setCarRefAtFront(int car, bool front);
+    double getOsmOffsetEast() const { return mOsmOffsetE; }
+    double getOsmOffsetNorth() const { return mOsmOffsetN; }
     void setEnuRef(double lat, double lon, double height);
     void getEnuRef(double *llh);
     double getOsmRes() const;
@@ -154,6 +161,8 @@ public:
     int setNextEmptyOrCreateNewInfoTrace();
     void removeLastRoutePoint();
     void zoomInOnRoute(int id, double margins, double wWidth = -1, double wHeight = -1);
+    void zoomInOnFieldBorders();
+    void zoomInOnPathBorders();
 
     int getOsmMaxZoomLevel() const;
     void setOsmMaxZoomLevel(int osmMaxZoomLevel);
@@ -212,6 +221,7 @@ public:
     void saveXMLCurrentRoute(QXmlStreamWriter* stream);
 
     std::array<double, 4> findExtremeValuesFieldBorders();
+    std::array<double, 4> findExtremeValuesPathBorders();
     void setLogStart(int iStart);
     void setLogEnd(int iEnd);
     int Elements();
@@ -289,6 +299,9 @@ private:
     int mOsmZoomLevel;
     int mOsmMaxZoomLevel;
     bool mDrawOpenStreetmap;
+    double mOsmOffsetE = 0.0;
+    QSet<int> mCarRefAtFront;
+    double mOsmOffsetN = 0.0;
     bool mDrawOsmStats;
     double mRefLat;
     double mRefLon;
@@ -325,6 +338,7 @@ private:
     void paintTiles(QPainter &painter,const double cx, const double cy, const double view_w, const double view_h, bool highQuality);
     void paintGrid(QPainter &painter,QPen &pen, QTransform drawTrans, QTransform txtTrans, int width,int height, double stepGrid,QString txt, QPointF pt_txt,const QColor textColor, const QColor zeroAxisColor,const QColor firstAxisColor,const QColor secondAxisColor,const double zeroAxisWidth);
     void paintCar(CarInfo &carInfo,QPainter &painter,QPen &pen, QTransform drawTrans, QTransform txtTrans,QString &txt, QPointF &pt_txt,const QColor &textColor,QRectF &rect_txt);
+    void paintRobAnt(QPainter &painter, const QColor &hull, const QColor &wheels, const QColor &front);
     void paintAnchor(LocPoint &anchor,QPainter &painter,QPen &pen, QTransform drawTrans, QTransform txtTrans,QString &txt, QPointF &pt_txt,const QColor &textColor,QRectF &rect_txt);
     void paintTrace(QList<LocPoint> &itNow,QPainter &painter,QPen &pen, bool isActive, QTransform drawTrans, QTransform txtTrans,const double cx, const double cy, const double view_w, const double view_h,int& info_segments, int& info_points);
     void paintCarTraces(QPainter &painter,QPen &pen, QTransform drawTrans);

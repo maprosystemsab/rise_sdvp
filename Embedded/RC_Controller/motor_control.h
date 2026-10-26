@@ -44,8 +44,22 @@ void motor_set_speed_autopilot(float speed);
 void motor_handle_route_end(void);
 void motor_stop(void);
 void motor_set_vesc_value(int id, float value,motor_control_mode mode);
+bool motor_test_spin(uint8_t vesc_id);
 
 // Function to get actuators by activity
 ACTUATOR* motor_get_actuators_by_activity(uint16_t activity, int* count);
+
+// RobAnt: drivsidorna var för sig och vändning på stället (bandvagnsvändning).
+// Aktiviteterna skickas med CMD_RC_CONTROL_ADV. 12 är "Emergency Stop" i
+// RControlStation och får inte användas här.
+#define ACT_NR_FART            10  // fart, båda sidor (som förut)
+#define ACT_NR_STYRNING        11
+#define ACT_NR_FART_VANSTER    20  // aktuatorns aktivitet: vänster drivsida
+#define ACT_NR_FART_HOGER      21  // aktuatorns aktivitet: höger drivsida
+#define ACT_NR_VANDNING        22  // kommando −1…+1, + = medurs (vänster fram, höger bak)
+
+// Tar hand om aktiviteterna ovan. Returnerar true om kommandot är hanterat,
+// false om det ska gå den vanliga vägen (alla aktuatorer med samma aktivitet).
+bool motor_rc_adv(uint8_t activity, float value);
 
 #endif /* MOTOR_CONTROL_H */

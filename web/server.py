@@ -1,5 +1,7 @@
+import html
 import json
 import os
+import socket
 import subprocess
 import sqlite3
 import xml.etree.ElementTree as ET
@@ -17,7 +19,7 @@ KUNDFIL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'kunder.json'
 
 # Det här får en kunddator göra (allt annat nekas): läsa listorna och sina egna
 # robotar/gårdar. Ändra/lägga till/ta bort, fält, banor och loggar är bara för oss.
-KUND_TILLATET = {'hello_world', 'list_machines', 'all_machines', 'vehicle_types',
+KUND_TILLATET = {'hello_world', 'robotar', 'list_machines', 'all_machines', 'vehicle_types',
                  'all_farms', 'read_machine', 'read_farm'}
 
 
@@ -81,6 +83,75 @@ def svarar_pa_ping(ip, forsok=3):
 @app.route('/')
 def hello_world():
     return "Hello, World!"
+
+
+def har_webbstyrning(ip, port=9443, tid=3.0):
+    """Svarar robotens webbsida för telefon/iPad/Quest (robotd webb.rs)?"""
+    try:
+        with socket.create_connection((ip, port), timeout=tid):
+            return True
+    except OSError:
+        return False
+
+
+ROBOTSIDA = """<!doctype html>
+<html lang="sv"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Robotar</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#0f1412;color:#e6ece9;font:16px/1.4 -apple-system,system-ui,sans-serif;
+   padding:max(16px,env(safe-area-inset-top)) 16px 32px}
+ h1{font-size:1.5rem;margin:.2em 0 .8em}
+ .lista{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));max-width:1000px}
+ .robot{background:#18201d;border:1px solid #2e3a35;border-radius:14px;padding:14px 16px;
+   display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit}
+ .prick{width:14px;height:14px;border-radius:50%;flex:none}
+ .pa .prick{background:#3ecf7a}.gammal .prick{background:#f2c25a}.av .prick{background:#55605b}
+ .namn{font-weight:600;font-size:1.1rem}.info{color:#9aa7a1;font-size:.9rem}
+ .kor{margin-left:auto;background:#2b6b4f;border-radius:10px;padding:10px 16px;font-weight:600;flex:none}
+ .av{opacity:.55}
+ p.tips{color:#9aa7a1;font-size:.9rem;max-width:60ch}
+</style></head><body>
+<h1>Robotar</h1>
+<div class="lista">{{LISTA}}</div>
+<p class="tips">Första gången en robot öppnas varnar webbläsaren för certifikatet: välj <b>Visa detaljer</b>
+(eller <b>Avancerat</b>) och fortsätt till sidan. Uppdatera listan genom att ladda om sidan.</p>
+</body></html>"""
+
+
+@app.route('/robotar')
+def robotar():
+    """Startsida för telefon/iPad/Quest: robotarna man får se, med länk till körsidan."""
+    kund = fragande_kund()
+    conn = sqlite3.connect('data.db')
+    rader = conn.execute('SELECT name, ip FROM machines').fetchall()
+    conn.close()
+    rader = sorted((r for r in rader if r[1] and maskin_tillhor(kund, r[1])), key=lambda r: r[0].lower())
+
+    def kolla(rad):
+        if har_webbstyrning(rad[1]):
+            return 'pa'
+        return 'gammal' if svarar_pa_ping(rad[1], forsok=1) else 'av'
+
+    with ThreadPoolExecutor(max_workers=32) as ex:
+        lagen = list(ex.map(kolla, rader))
+
+    kort = []
+    for (namn, ip), lage in sorted(zip(rader, lagen), key=lambda x: ({'pa': 0, 'gammal': 1, 'av': 2}[x[1]], x[0][0].lower())):
+        n, i = html.escape(namn), html.escape(ip)
+        if lage == 'pa':
+            kort.append(f'<a class="robot pa" href="https://{i}:9443/"><span class="prick"></span>'
+                        f'<span><div class="namn">{n}</div><div class="info">{i}</div></span><span class="kor">Kör</span></a>')
+        else:
+            text = 'på, men saknar telefonstyrning' if lage == 'gammal' else 'svarar inte'
+            kort.append(f'<div class="robot {lage}"><span class="prick"></span>'
+                        f'<span><div class="namn">{n}</div><div class="info">{i} · {text}</div></span></div>')
+    if not kort:
+        kort.append('<div class="robot av"><span>Inga robotar.</span></div>')
+    return Response(ROBOTSIDA.replace('{{LISTA}}', ''.join(kort)), mimetype='text/html')
 
 
 @app.route('/leafletLoadXML.html')
@@ -1076,6 +1147,60 @@ def add_path():
         conn.close()
         
         return "Path added successfully", 201
+        
+    except sqlite3.IntegrityError as e:
+        return f"Error: {str(e)}", 409
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+
+@app.route('/add_unconnected_path', methods=['POST'])
+def add_unconnected_path():
+    """Add a path from an unconnected field file to the database."""
+    try:
+        def get_param(name):
+            value = request.form.get(name) or request.args.get(name)
+            return value
+        
+        # Get required parameters
+        field_id = get_param('field_id')
+        path_name = get_param('path_name')
+        path_filename = get_param('path_filename')
+        
+        # Validate required fields
+        if not field_id:
+            return "Error: 'field_id' parameter is required", 400
+        
+        if not path_name:
+            return "Error: 'path_name' parameter is required", 400
+        
+        if not path_filename:
+            return "Error: 'path_filename' parameter is required", 400
+        
+        # Validate that field_id is an integer
+        try:
+            field_id_int = int(field_id)
+        except ValueError:
+            return "Error: 'field_id' parameter must be an integer", 400
+        
+        # Connect to database
+        conn = sqlite3.connect('data.db')
+        cursor = conn.cursor()
+        
+        # Insert the path into the database
+        # iPath will auto-increment
+        cursor.execute(
+            'INSERT INTO paths (name, field, storedinfile) VALUES (?, ?, ?)',
+            (path_name, field_id_int, path_filename)
+        )
+        
+        # Get the ID of the newly inserted path
+        path_id = cursor.lastrowid
+        
+        conn.commit()
+        conn.close()
+        
+        return f"Path added successfully with ID: {path_id}", 201
         
     except sqlite3.IntegrityError as e:
         return f"Error: {str(e)}", 409

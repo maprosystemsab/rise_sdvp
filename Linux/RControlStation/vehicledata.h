@@ -7,9 +7,10 @@
  * - Effekt (för räckvidden): CMD_GET_VESC_STATUS (140), motorström × duty × spänning.
  * - Styrvinkel: terminalkommandot "vinkel" (RobAnt-firmware). Svaret visas inte i
  *   terminalen när det är statusrutan som frågat (hideAnglePrint).
- * - Batteriet: 4 st 12,8 V 80 Ah LiFePO4 i serie (16 celler, 4096 Wh). Procenten
- *   tas ur vilospänningen när roboten står still och räknas sedan ner med förbrukad
- *   energi, så att spänningsfallet under körning inte syns.
+ * - Batteriet: ställs in per maskin (knappen Batteri och fordon i statusrutan), samma
+ *   alternativ som robotd:s config.json. Standard: 4 st 12,8 V 80 Ah LiFePO4 i serie
+ *   (16 celler, 4096 Wh). Procenten tas ur vilospänningen när roboten står still och
+ *   räknas sedan ner med förbrukad energi, så att spänningsfallet under körning inte syns.
  */
 
 #ifndef VEHICLEDATA_H
@@ -23,11 +24,29 @@
 #include <QString>
 #include "datatypes.h"
 
+// Batteri och styrning för en maskin. Sparas per maskin (robotens adress) med QSettings.
+struct VehicleConfig {
+    QString batteryType = "lifepo4";   // "lifepo4" (cellernas vilospänning) eller "linear"
+    int seriesCells = 16;               // LiFePO4: celler i serie
+    double emptyV = 48.0;               // linear: 0 %
+    double fullV = 54.4;                // linear: 100 %
+    double capacityWh = 4096.0;         // 0 = okänd (ingen räckvidd)
+    double steeringMaxDeg = 25.0;       // största styrvinkel åt varje håll
+
+    // Inställningen för maskinen på adressen, annars standardinställningen, annars ovan.
+    static VehicleConfig load(const QString &machine);
+    void save(const QString &machine) const;  // tom machine = standard för alla maskiner
+    QString describe() const;           // t.ex. "LiFePO4 16 celler, 4096 Wh"
+};
+
 class VehicleData : public QObject
 {
     Q_OBJECT
 public:
     explicit VehicleData(QObject *parent = nullptr);
+
+    void setConfig(const VehicleConfig &cfg) { mCfg = cfg; mRestPercent = -1.0; }
+    const VehicleConfig &config() const { return mCfg; }
 
     // Batteri: procent ur vilospänningen för en LiFePO4-cell (16 i serie).
     static double lifepo4Percent(double packVoltage, int cells = 16);
@@ -54,6 +73,7 @@ private:
     void writeLog();
     double batteryPercent(double v);
 
+    VehicleConfig mCfg;
     quint8 mCarId = 0;
     bool mHaveState = false;
     CAR_STATE mState;

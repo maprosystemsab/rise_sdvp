@@ -52,9 +52,22 @@
 #include <QUrlQuery>
 #include <QTimer>
 #include <QSettings>
+#include <QPushButton>
+#include <QDialogButtonBox>
+#include <QCheckBox>
+#include <QDoubleSpinBox>
+#include <QSpinBox>
+#include <QComboBox>
+#include <QFormLayout>
+#include <QDialog>
 
 // Mapros webbserver i WireGuard-tunneln, används när inget annat är inställt.
 static const char *STANDARD_SERVER = "192.168.200.1:8080";
+
+// Aktiviteter som skickas till styrkortet (CMD_RC_CONTROL_ADV). 12 = Emergency Stop.
+static const int ACT_FART = 10;
+static const int ACT_STYRNING = 11;
+static const int ACT_VANDNING = 22; // RobAnt: vändning på stället, −1…+1, + = medurs
 #include <QLoggingCategory>
 #include <QtSql>
 #include <QtCharts>
@@ -164,14 +177,11 @@ MainWindow::MainWindow(QWidget *parent) :
         if (sparad.isEmpty()) {
             sparad = QSettings("SLU", "RControlStation").value("serverip").toString(); // Gunnars tidigare inställning
         }
-        mServerEdit = new QLineEdit(sparad, this);
-        mServerEdit->setObjectName("serveripEdit");
+        mServerEdit = ui->serveripEdit;     // fältet "Server ip" överst på fliken Farm
+        mServerEdit->setText(sparad);
         mServerEdit->setPlaceholderText(QString(STANDARD_SERVER) + " (Mapro)");
         mServerEdit->setToolTip("Webbserverns adress för gårdar, fält, banor och maskiner, "
                                 "t.ex. 192.168.200.1:8080. Tomt = Mapros server. Port 8080 om ingen anges.");
-        const int rad = ui->gridLayout_3->rowCount();
-        ui->gridLayout_3->addWidget(new QLabel("Server", this), rad, 0);
-        ui->gridLayout_3->addWidget(mServerEdit, rad, 2);
         connect(mServerEdit, &QLineEdit::editingFinished, this, [this]() {
             QSettings("RControlStation", "server").setValue("adress", mServerEdit->text().trimmed());
         });
@@ -304,10 +314,23 @@ MainWindow::MainWindow(QWidget *parent) :
     // Connect cut path button
     connect(ui->cutPathButton, &QPushButton::clicked, this, &MainWindow::cutPathByArea);
 
+    // Initialize File Administration map widget handlers
+    mMapWidgetFileAdmin->setMousePressEventHandler([this](QMouseEvent *e) {
+        mMapWidgetFileAdmin->mousePressEventFields(e);
+    });
+    mMapWidgetFileAdmin->setMouseReleaseEventHandler([this](QMouseEvent *e) {
+        mMapWidgetFileAdmin->mousePressEventFields(e);
+    });
+    mMapWidgetFileAdmin->setWheelEventHandler([this](QWheelEvent *e) {
+        mMapWidgetFileAdmin->wheelEventFields(e);
+    });
+
     ui->mapWidgetFields->setMainWindow(this);
     ui->mapWidgetFields->setBorderFocus(true);
     ui->mapWidgetAnalysis->setAnalysisActive(true);
     ui->mapWidgetAnalysisResult->setMainWindow(this);
+    mMapWidgetFileAdmin->setMainWindow(this);
+    mMapWidgetFileAdmin->setBorderFocus(true);
     
     // Connect the pathsUpdated signal to refresh the graph
     connect(ui->mapWidgetAnalysisResult, &MapWidget::pathsUpdated, this, &MainWindow::updateCurrentAnalysis);
@@ -323,6 +346,26 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 1));
     mSupportedFirmwares.append(qMakePair(30, 2)); // Write-hängningen rättad, heartbeat i sekunder
     mSupportedFirmwares.append(qMakePair(30, 3)); // + autopiloten sätter körriktningen
+    mSupportedFirmwares.append(qMakePair(30, 4)); // + VESC-ping och provsnurr (Robotstyrning)
+    mSupportedFirmwares.append(qMakePair(30, 5)); // + självcentrerande styrning med vinkelgivaren
+    mSupportedFirmwares.append(qMakePair(30, 6)); // + bandvagnsvändning (O-knappen)
+    mSupportedFirmwares.append(qMakePair(30, 7)); // + snabbare självcentrering
+    mSupportedFirmwares.append(qMakePair(30, 8)); // + elektronisk differential
+    mSupportedFirmwares.append(qMakePair(30, 9)); // + autopiloten styr RobAnt
+    mSupportedFirmwares.append(qMakePair(30, 10)); // + styrningen fastnar inte nära rakt fram
+    mSupportedFirmwares.append(qMakePair(30, 11)); // + CMD_GET_VINKEL för statusskärmen (krockade med 143)
+    mSupportedFirmwares.append(qMakePair(30, 12)); // + CMD_GET_VINKEL på 150
+    mSupportedFirmwares.append(qMakePair(30, 13)); // + RobAnt ignorerar gamla RC_CONTROL när dosan (ADV) används
+    mSupportedFirmwares.append(qMakePair(30, 14)); // + gasramp på RobAnts drivsidor
+    mSupportedFirmwares.append(qMakePair(30, 15)); // + positionsberäkningen använder vinkelgivaren
+    mSupportedFirmwares.append(qMakePair(30, 16)); // + Write raderar inte vinkelkalibreringen
+    mSupportedFirmwares.append(qMakePair(30, 17)); // + vinkelstyrningen på 0,8
+    mSupportedFirmwares.append(qMakePair(30, 18)); // + knappen Autocentrering
+    mSupportedFirmwares.append(qMakePair(30, 19)); // + kursen tappas inte vid backning
+    mSupportedFirmwares.append(qMakePair(30, 20)); // + positionen följer GPS med RTK
+    mSupportedFirmwares.append(qMakePair(30, 21)); // + störfilter på hjulgivaren
+    mSupportedFirmwares.append(qMakePair(30, 22)); // + autopiloten drar in sidofel
+    mSupportedFirmwares.append(qMakePair(30, 23)); // + avstudsad hjulgivare
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
@@ -335,7 +378,7 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->statusBar->addPermanentWidget(mStatusLabel);
     mStatusInfoTime = 0;
     mActiveCarId = 0;
-    mJoystickControlEnabled = true;
+    mJoystickControlEnabled = false; // dosan aktiveras med knappen "Aktivera dosa"
     mPacketInterface = new PacketInterface(this);
     mSerialPort = new QSerialPort(this);
     mNetworkManager = new QNetworkAccessManager(this);
@@ -367,6 +410,47 @@ MainWindow::MainWindow(QWidget *parent) :
         mStatusBoxLabel->setTextFormat(Qt::RichText);
         mStatusBoxLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         statusLayout->addWidget(mStatusBoxLabel);
+        QPushButton *vehicleButton = new QPushButton("Batteri och fordon…", statusBox);
+        vehicleButton->setToolTip("Batterityp, celler, kapacitet och största styrvinkel för maskinen du är ansluten till");
+        connect(vehicleButton, &QPushButton::clicked, this, &MainWindow::openVehicleSettings);
+        statusLayout->addWidget(vehicleButton, 0, Qt::AlignLeft);
+        QPushButton *angleButton = new QPushButton("Kalibrera styrvinkel…", statusBox);
+        angleButton->setToolTip("Vinkelgivaren: rakt fram, fullt höger och fullt vänster. Sparas i styrkortet.");
+        connect(angleButton, &QPushButton::clicked, this, &MainWindow::calibrateSteeringAngle);
+        statusLayout->addWidget(angleButton, 0, Qt::AlignLeft);
+        mAutoCenterButton = new QPushButton("Autocentrering", statusBox);
+        connect(mAutoCenterButton, &QPushButton::clicked, this, [this]() {
+            if (mAutoCenterLage < 1 || mAutoCenterLage > 3) {
+                return;
+            }
+            // På -> av; av eller av p.g.a. fel -> på (felet nollställs).
+            QByteArray pkt;
+            pkt.append((char)mVehicle->carId());
+            pkt.append((char)151);  // CMD_SET_AUTOCENTRERING
+            pkt.append((char)(mAutoCenterLage == 1 ? 0 : 1));
+            mPacketInterface->sendPacket(pkt);
+        });
+        statusLayout->addWidget(mAutoCenterButton, 0, Qt::AlignLeft);
+        autoCenterVisa(-1);
+        QPushButton *mapOffsetButton = new QPushButton("Justera flygfoto…", statusBox);
+        mapOffsetButton->setToolTip("Flytta flygfotot så att det stämmer med RTK-positionen (fotona ligger ofta 1–3 m fel)");
+        connect(mapOffsetButton, &QPushButton::clicked, this, &MainWindow::adjustMapOffset);
+        statusLayout->addWidget(mapOffsetButton, 0, Qt::AlignLeft);
+        // Fråga styrkortet om läget varje sekund (CMD_GET_VINKEL är bara läsning,
+        // nollställer inte säkerhetstiden).
+        QTimer *autoCenterTimer = new QTimer(this);
+        connect(autoCenterTimer, &QTimer::timeout, this, [this]() {
+            if (mTcpClientMulti && mTcpClientMulti->isAnyConnected() && mVehicle) {
+                QByteArray pkt;
+                pkt.append((char)mVehicle->carId());
+                pkt.append((char)150);  // CMD_GET_VINKEL
+                mPacketInterface->sendPacket(pkt);
+            }
+            if (mAutoCenterLage != -1 && (!mAutoCenterSenast.isValid() || mAutoCenterSenast.elapsed() > 3500)) {
+                autoCenterVisa(-1);
+            }
+        });
+        autoCenterTimer->start(1000);
         int idx = ui->verticalLayout->indexOf(ui->verticalSpacer);
         ui->verticalLayout->insertWidget(idx < 0 ? 3 : idx, statusBox);
 
@@ -392,6 +476,12 @@ MainWindow::MainWindow(QWidget *parent) :
             ui->mapLiveWidget->moveView(0.0, 0.0);
             qDebug() << "Kartan startar på senaste position:" << lat << lon;
         }
+        ui->mapLiveWidget->setOsmOffset(s.value("fotoOster", 0.0).toDouble(),
+                                        s.value("fotoNorr", 0.0).toDouble());
+        // Rutnätet: av som standard, annars som man lämnade det.
+        const bool rutnat = s.value("rutnat", false).toBool();
+        ui->mapDrawGridBox->setChecked(rutnat);
+        ui->mapLiveWidget->setDrawGrid(rutnat);
     }
 
     // Redskapets mått (arbetsbredd = avstånd mellan körningarna i ZigZag, och GL-fill)
@@ -458,11 +548,47 @@ MainWindow::MainWindow(QWidget *parent) :
             this, SLOT(packetDataToSend(QByteArray&)));
     connect(mPacketInterface, SIGNAL(stateReceived(quint8,CAR_STATE)),
             this, SLOT(stateReceived(quint8,CAR_STATE)));
+
+    // Bil-ID automatiskt (se applyAutoId): fråga ID_ALL tills kortet svarar, högst ~6 s.
+    mAutoIdTimer = new QTimer(this);
+    mAutoIdTimer->setInterval(500);
+    connect(mAutoIdTimer, &QTimer::timeout, this, [this]() {
+        if (!mAutoIdPending || ++mAutoIdTries > 12) {
+            if (mAutoIdPending) {
+                qDebug() << "Bil-ID: styrkortet svarade inte på ID_ALL, behåller maskinlistans ID.";
+            }
+            mAutoIdPending = false;
+            mAutoIdTimer->stop();
+            return;
+        }
+        mPacketInterface->getState(ID_ALL);
+    });
     mVehicle = new VehicleData(this);
     connect(mPacketInterface, &PacketInterface::packetReceived, this,
             [this](quint8 id, CMD_PACKET cmd, const QByteArray &pkt) {
         mVehicle->packetReceived(id, (quint8)cmd, pkt);
+        if ((quint8)cmd == 143 && pkt.size() >= 3) {
+            mNodstoppSenast.start();
+            nodstoppVisa((quint8)pkt[2]);
+        }
+        if ((quint8)cmd == 150 && id == mVehicle->carId() && pkt.size() >= 10) {
+            // [id][150][status][kalibrerad][mV u16][grader i32][autocentrering] (30.18)
+            mAutoCenterSenast.start();
+            autoCenterVisa(pkt.size() >= 11 ? (quint8)pkt[10] : 4);
+        }
     });
+
+    // Stopp-knappen visar nödstoppet. Hörs inget från Car_Client på 3 s
+    // (gammal Car_Client, inget nödstopp, frånkopplad) blir den vanlig igen.
+    mStopIcon = ui->stopButton->icon();
+    nodstoppVisa(-1);
+    QTimer *nodstoppTimer = new QTimer(this);
+    connect(nodstoppTimer, &QTimer::timeout, this, [this]() {
+        if (mNodstoppLage >= 0 && (!mNodstoppSenast.isValid() || mNodstoppSenast.elapsed() > 3000)) {
+            nodstoppVisa(-1);
+        }
+    });
+    nodstoppTimer->start(1000);
     connect(ui->mapLiveWidget, SIGNAL(posSet(quint8,LocPoint)),
             this, SLOT(mapPosSet(quint8,LocPoint)));
     connect(mPacketInterface, SIGNAL(ackReceived(quint8,CMD_PACKET,QString)),
@@ -677,9 +803,56 @@ MainWindow::MainWindow(QWidget *parent) :
     qApp->installEventFilter(this);
     
     // Connect checkBoxActiveKB to joystick control
+    ui->checkBoxActiveKB->setChecked(false);
     connect(ui->checkBoxActiveKB, &QCheckBox::stateChanged, this, [this](int state) {
         setJoystickControlEnabled(state == Qt::Checked);
+        updateGamepadButton();
     });
+
+    // Joystick och Control bredvid varandra, med knappen "Aktivera dosa" ovanför.
+    {
+        QGroupBox *jsBox = qobject_cast<QGroupBox*>(ui->jsConnectButton->parentWidget());
+        QGroupBox *ctrlBox = ui->groupBox_3;
+        QBoxLayout *parentLayout = ui->verticalLayout;   // vänstra spalten
+        if (jsBox && parentLayout && parentLayout->indexOf(jsBox) >= 0 && parentLayout->indexOf(ctrlBox) >= 0) {
+            const int idx = parentLayout->indexOf(jsBox);
+            parentLayout->removeWidget(jsBox);
+            parentLayout->removeWidget(ctrlBox);
+
+            // Joystick-rutan: knapparna under varandra.
+            if (QGridLayout *g = qobject_cast<QGridLayout*>(jsBox->layout())) {
+                g->removeWidget(ui->jsConnectButton);
+                g->removeWidget(ui->jsDisconnectButton);
+                g->removeWidget(ui->jsConnectedLabel);
+                g->addWidget(ui->jsConnectButton, 0, 0);
+                g->addWidget(ui->jsDisconnectButton, 1, 0);
+                g->addWidget(ui->jsConnectedLabel, 2, 0);
+                g->setRowStretch(3, 1);
+            }
+
+            QWidget *box = new QWidget(this);
+            QVBoxLayout *v = new QVBoxLayout(box);
+            v->setContentsMargins(0, 0, 0, 0);
+            mGamepadButton = new QPushButton(box);
+            mGamepadButton->setMinimumHeight(36);
+            connect(mGamepadButton, &QPushButton::clicked, this, [this]() {
+                if (mJoystickControlEnabled) {
+                    lockGamepad("Dosan låst");
+                } else {
+                    activateGamepad();
+                }
+            });
+            v->addWidget(mGamepadButton);
+            QHBoxLayout *h = new QHBoxLayout();
+            h->addWidget(jsBox, 0, Qt::AlignTop);
+            h->addWidget(ctrlBox, 1, Qt::AlignTop);
+            v->addLayout(h);
+            parentLayout->insertWidget(idx, box);
+        } else {
+            qWarning() << "Hittade inte Joystick- och Control-rutorna; knappen Aktivera dosa saknas.";
+        }
+        updateGamepadButton();
+    }
 
     // Populate controller combo boxes from database
     populateControllerComboBoxes();
@@ -1409,6 +1582,9 @@ void MainWindow::handleControllerInput(int controllerNumber, float value)
     if (qAbs(value) < 0.02f) {
         value = 0.0f;
     }
+    if (value != 0.0f && mJoystickControlEnabled) {
+        mGamepadActivity.restart();
+    }
 
     // Jitterfilter: skicka inte små ändringar, men en övergång till 0 skickas alltid.
     // Ett stillastående reglage skickas om av rcResendTick() så att VESC:ernas
@@ -1455,7 +1631,29 @@ void MainWindow::handleControllerInput(int controllerNumber, float value)
         // - car: mActiveCarId (the currently selected active car)
         // - iAction: the action ID from the database
         // - value: the input value passed to this function
-        float scaled = value*ui->throttleMaxBox->value();
+        // Max-rutan gäller driften. Styrningen (Steering Control, aktivitet 11) har
+        // en mindre motor och går alltid på STYRNING_MAX, oavsett Max-rutan.
+        const int STYRNING_AKTIVITET = 11;
+        const float STYRNING_MAX = 0.8f;
+        float scaled = value * (actionId == STYRNING_AKTIVITET ? STYRNING_MAX : (float)ui->throttleMaxBox->value());
+
+        // RobAnt-vändning: medan O hålls blir styrspaken vändning (22) och gasen 0.
+        // Firmwaren begränsar farten (30 % som standard), så spakens värde skickas rakt.
+        if (mPivotHeld && actionId == ACT_STYRNING) {
+            if (value == 0.0f) {
+                mLastActionValues.remove(ACT_VANDNING);
+            } else {
+                mLastActionValues[ACT_VANDNING] = value;
+            }
+            controllerAction(mActiveCarId, ACT_VANDNING, value);
+            return;
+        }
+        if (mPivotHeld && actionId == ACT_FART) {
+            mLastActionValues.remove(ACT_FART);
+            controllerAction(mActiveCarId, ACT_FART, 0.0f);
+            return;
+        }
+
         if (scaled == 0.0f) {
             mLastActionValues.remove(actionId);
         } else {
@@ -1680,6 +1878,225 @@ QStandardItemModel* MainWindow::setupFieldsTable(QTableView* uiFieldTable)
     return model;
 }
 
+void MainWindow::setupFileAdminTab()
+{
+    // Populate farms combo box from farmsModel (same as log tab but with different names)
+    ui->comboBoxFileAdminFarm->clear();
+    if (farmsModel) {
+        for (int row = 0; row < farmsModel->rowCount(); row++) {
+            QStandardItem* item = farmsModel->item(row, 0);
+            if (item) {
+                ui->comboBoxFileAdminFarm->addItem(item->text(), item->data(Qt::UserRole));
+            }
+        }
+    }
+    
+    // Connect signals (same as log tab)
+    connect(ui->comboBoxFileAdminFarm, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminFarmSelected);
+    connect(ui->comboBoxFileAdminField, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminFieldSelected);
+    connect(ui->pushButtonFileAdminAction, &QPushButton::clicked, this, &MainWindow::onFileAdminActionButtonClicked);
+}
+
+void MainWindow::onFileAdminFarmSelected(int index)
+{
+    qDebug() << "onFileAdminFarmSelected: index =" << index;
+    
+    // Set ENU reference for the selected farm
+    if (farmsModel && index >= 0 && index < farmsModel->rowCount()) {
+        QStandardItem* nameItem = farmsModel->item(index, 0);
+        if (nameItem) {
+            QString lon = farmsModel->data(farmsModel->index(index, 1)).toString();
+            QString lat = farmsModel->data(farmsModel->index(index, 2)).toString();
+            
+            double llh[3];
+            llh[0] = lat.toDouble();
+            llh[1] = lon.toDouble();
+            llh[2] = 0;
+            mMapWidgetFileAdmin->setEnuRef(llh[0], llh[1], 0);
+            qDebug() << "  ENU ref set to lat:" << llh[0] << "lon:" << llh[1];
+            
+            // Save map position
+            saveMapPosition(llh[0], llh[1]);
+        }
+        
+        // Get farm ID and populate fields combo box
+        QString farmId = nameItem->data(Qt::UserRole).toString();
+        qDebug() << "  farmId =" << farmId;
+        
+        // Clear and populate fields combo box
+        ui->comboBoxFileAdminField->clear();
+        ui->lineEditFileAdminPath->clear();
+        
+        // Fetch fields for this farm from server
+        if (!farmId.isEmpty()) {
+            fetchFieldsForFileAdminFarm(farmId.toInt());
+        }
+    } else {
+        qDebug() << "  Invalid index or farmsModel not ready";
+    }
+}
+
+void MainWindow::onFileAdminFieldSelected(int index)
+{
+    qDebug() << "onFileAdminFieldSelected: index =";
+    
+    // Get the selected field ID from the combo box
+    if (index >= 0 && index < ui->comboBoxFileAdminField->count()) {
+        QString fieldId = ui->comboBoxFileAdminField->itemData(index).toString();
+        qDebug() << "  fieldId =" << fieldId;
+        
+        // Clear the path name line edit
+        ui->lineEditFileAdminPath->clear();
+        
+        // Load and display the field as a border
+        if (!fieldId.isEmpty()) {
+            int id = fieldId.toInt();
+            if (id > 0) {
+                mMapWidgetFileAdmin->clearAllFields();
+                
+                // Fetch the field from server
+                QUrl url(getServerBaseUrl() + "/field");
+                QUrlQuery query;
+                query.addQueryItem("id", fieldId);
+                url.setQuery(query);
+                qDebug() << "  Fetching field from URL:" << url.toString();
+                
+                QNetworkRequest request(url);
+                request.setTransferTimeout(10000);
+                
+                QNetworkReply* reply = mNetworkManager->get(request);
+                if (reply) {
+                    showStatusInfo("Loading field border...", true);
+                    
+                    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+                        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                        qDebug() << "  HTTP Status Code:" << statusCode;
+                        
+                        if (reply->error() == QNetworkReply::NoError && statusCode == 200) {
+                            QByteArray xmlData = reply->readAll();
+                            qDebug() << "  XML data size:" << xmlData.size();
+                            
+                            if (!xmlData.isEmpty()) {
+                                QXmlStreamReader xmlReader(xmlData);
+                                bool success = mMapWidgetFileAdmin->loadXMLRoute(&xmlReader, true); // true = isBorder
+                                
+                                if (success) {
+                                    qDebug() << "  Successfully loaded field border";
+                                    showStatusInfo("Loaded field border", true);
+                                    
+                                    // Zoom in on the field border
+                                    if (mMapWidgetFileAdmin->getFieldNum() > 0) {
+                                        qDebug() << "  Calling zoomInOnFieldBorders";
+                                        mMapWidgetFileAdmin->zoomInOnFieldBorders();
+                                    }
+                                } else {
+                                    qDebug() << "  Failed to load field border: XML error:" << xmlReader.errorString();
+                                    showStatusInfo("Failed to load field border", false);
+                                }
+                            } else {
+                                qDebug() << "  Empty response for field";
+                                showStatusInfo("Empty response", false);
+                            }
+                        } else {
+                            QString errorMsg = reply->errorString();
+                            if (statusCode != 200 && statusCode > 0) {
+                                errorMsg = QString("HTTP %1").arg(statusCode);
+                            }
+                            qDebug() << "  Error fetching field:" << errorMsg;
+                            showStatusInfo("Error loading field: " + errorMsg, false);
+                        }
+                        reply->deleteLater();
+                    });
+                }
+            }
+        }
+    } else {
+        qDebug() << "  Invalid index";
+    }
+}
+
+void MainWindow::onFileAdminActionButtonClicked()
+{
+    qDebug() << "onFileAdminActionButtonClicked: called";
+    
+    // Get the selected field ID from the combo box
+    int fieldIndex = ui->comboBoxFileAdminField->currentIndex();
+    if (fieldIndex < 0 || fieldIndex >= ui->comboBoxFileAdminField->count()) {
+        qDebug() << "  No field selected";
+        showStatusInfo("No field selected", false);
+        return;
+    }
+    
+    QString fieldId = ui->comboBoxFileAdminField->itemData(fieldIndex).toString();
+    qDebug() << "  fieldId =" << fieldId;
+    
+    // Get the path name from the line edit
+    QString pathName = ui->lineEditFileAdminPath->text();
+    if (pathName.isEmpty()) {
+        qDebug() << "  Path name is empty";
+        showStatusInfo("Path name cannot be empty", false);
+        return;
+    }
+    qDebug() << "  pathName =" << pathName;
+    
+    // Get the path filename from the selected table item
+    int tableRow = ui->unconnectedFieldsTable->currentRow();
+    if (tableRow < 0) {
+        qDebug() << "  No file selected in table";
+        showStatusInfo("No file selected in table", false);
+        return;
+    }
+    
+    QTableWidgetItem *filenameItem = ui->unconnectedFieldsTable->item(tableRow, 0);
+    if (!filenameItem) {
+        qDebug() << "  No filename item at row" << tableRow;
+        showStatusInfo("No filename found", false);
+        return;
+    }
+    
+    QString pathFilename = filenameItem->text();
+    qDebug() << "  pathFilename =" << pathFilename;
+    
+    // Call the server to add the path
+    QUrl url(getServerBaseUrl() + "/add_unconnected_path");
+    QUrlQuery query;
+    query.addQueryItem("field_id", fieldId);
+    query.addQueryItem("path_name", pathName);
+    query.addQueryItem("path_filename", pathFilename);
+    url.setQuery(query);
+    
+    QNetworkRequest request(url);
+    request.setTransferTimeout(10000);
+    
+    QNetworkReply* reply = mNetworkManager->post(request, QByteArray());
+    if (!reply) {
+        qDebug() << "ERROR: Network request failed";
+        showStatusInfo("Network error", false);
+        return;
+    }
+    
+    showStatusInfo("Adding path...", true);
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qDebug() << "HTTP Status Code:" << statusCode;
+        
+        if (reply->error() == QNetworkReply::NoError && statusCode == 201) {
+            QString response = reply->readAll();
+            qDebug() << "Success:" << response;
+            showStatusInfo(response, true);
+        } else {
+            QString errorMsg = reply->errorString();
+            if (statusCode != 201 && statusCode > 0) {
+                errorMsg = QString("HTTP %1: ").arg(statusCode) + reply->readAll();
+            }
+            qDebug() << "Error:" << errorMsg;
+            showStatusInfo("Error: " + errorMsg, false);
+        }
+        reply->deleteLater();
+    });
+}
+
 void MainWindow::setupLogTab()
 {
     qDebug() << "Setting up log tab...";
@@ -1810,6 +2227,7 @@ void MainWindow::onSelectedFarm(const QModelIndex& current, const QModelIndex& p
     ui->mapWidgetFields->setEnuRef(llh[0],llh[1],0);
     ui->mapWidgetAnalysis->setEnuRef(llh[0],llh[1],0);
     ui->mapWidgetAnalysisResult->setEnuRef(llh[0],llh[1],0);
+    mMapWidgetFileAdmin->setEnuRef(llh[0],llh[1],0);
 
     qDebug() << "lat: " << llh[0];
     qDebug() << "lon: " << llh[1];
@@ -1841,15 +2259,7 @@ void MainWindow::onSelectedFarm(const QModelIndex& current, const QModelIndex& p
     //            if (ui->fieldTable->model()->rowCount()>0)
     if (ui->mapWidgetFields->getFieldNum()>0)
     {
-        std::array<double, 4> extremes_m=ui->mapWidgetFields->findExtremeValuesFieldBorders();
-        double fieldareawidth_m=extremes_m[2]-extremes_m[0];
-        double fieldareaheight_m=extremes_m[3]-extremes_m[1];
-        double offsetx_m=(extremes_m[2]+extremes_m[0])/2;
-        double offsety_m=(extremes_m[3]+extremes_m[1])/2;
-        double scalex=0.5/(fieldareawidth_m);
-        double scaley=0.5/(fieldareaheight_m);
-        ui->mapWidgetFields->moveView(offsetx_m, offsety_m);
-        ui->mapWidgetFields->setScaleFactor(std::min(scalex,scaley));
+        ui->mapWidgetFields->zoomInOnFieldBorders();
    //     //                ui->fieldTable->selectRow(0);
     } else
     {
@@ -1936,8 +2346,7 @@ void MainWindow::onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item)
     QString filename = filenameItem->text();
     qDebug() << "File administration: Loading file:" << filename;
     
-    // Clear the map first
-    mMapWidgetFileAdmin->clearAllFields();
+    // Clear only paths, keep the field border
     mMapWidgetFileAdmin->clearAllPaths();
     mMapWidgetFileAdmin->update();
     
@@ -1956,7 +2365,7 @@ void MainWindow::onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item)
     }
     
     // Show loading state
-    showStatusInfo("Loading border: " + filename, true);
+    showStatusInfo("Loading path: " + filename, true);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply, filename]() {
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -1968,23 +2377,19 @@ void MainWindow::onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item)
             
             if (!xmlData.isEmpty()) {
                 QXmlStreamReader xmlReader(xmlData);
-                bool success = mMapWidgetFileAdmin->loadXMLRoute(&xmlReader, true); // true = isBorder
+                bool success = mMapWidgetFileAdmin->loadXMLRoute(&xmlReader, false); // false = isPath (not border)
                 
                 if (success) {
-                    qDebug() << "Successfully loaded border file:" << filename;
-                    showStatusInfo("Loaded border: " + filename, true);
+                    qDebug() << "Successfully loaded path file:" << filename;
+                    showStatusInfo("Loaded path: " + filename, true);
+                    qDebug() << "  Field count:" << mMapWidgetFileAdmin->getFieldNum();
                     
                     // Center the view on the loaded data
-                    if (mMapWidgetFileAdmin->getFieldNum() > 0) {
-                        std::array<double, 4> extremes = mMapWidgetFileAdmin->findExtremeValuesFieldBorders();
-                        double offsetx = (extremes[0] + extremes[1]) / 2.0;
-                        double offsety = (extremes[2] + extremes[3]) / 2.0;
-                        double scalex = 1.0 / (extremes[1] - extremes[0]);
-                        double scaley = 1.0 / (extremes[3] - extremes[2]);
-                        
-                        mMapWidgetFileAdmin->moveView(offsetx, offsety);
-                        mMapWidgetFileAdmin->setScaleFactor(std::min(scalex, scaley) * 0.9);
-                        mMapWidgetFileAdmin->update();
+                    if (mMapWidgetFileAdmin->getPathNum() > 0) {
+                        qDebug() << "  Calling zoomInOnPathBorders from table click";
+                        mMapWidgetFileAdmin->zoomInOnPathBorders();
+                    } else {
+                        qDebug() << "  No paths to zoom on";
                     }
                 } else {
                     qDebug() << "Failed to load border file:" << filename << "XML error:" << xmlReader.errorString();
@@ -2059,7 +2464,28 @@ bool MainWindow::connectJoystick()
     if (SDL_NumJoysticks() < 1) {
         qDebug() << "No joysticks connected!";
     } else {
-        SDL_GameController* controller = SDL_GameControllerOpen(0);
+        // En PS4-dosa på USB syns som flera enheter ("Wireless Controller", "... Motion
+        // Sensors", "... Touchpad"), en HP-dator kan ha en accelerometer. Förut öppnades
+        // alltid nummer 0: var det rörelsesensorn blev det "Ingen dosa ansluten"
+        // (kunden med RobAnt 3, 2026-10-16). Ta första riktiga spelkontrollen.
+        int valj = -1;
+        for (int i = 0; i < SDL_NumJoysticks(); i++) {
+            const char *namn = SDL_JoystickNameForIndex(i);
+            const QString n = QString(namn ? namn : "").toLower();
+            qDebug() << "Dosa" << i << (namn ? namn : "?") << "spelkontroll:" << (bool)SDL_IsGameController(i);
+            if (!SDL_IsGameController(i) || n.contains("motion sensor") || n.contains("touchpad")
+                    || n.contains("accelerometer")) {
+                continue;
+            }
+            valj = i;
+            break;
+        }
+        for (int i = 0; valj < 0 && i < SDL_NumJoysticks(); i++) {
+            if (SDL_IsGameController(i)) {
+                valj = i;   // ingen med bra namn: första spelkontrollen, som förut
+            }
+        }
+        SDL_GameController* controller = valj >= 0 ? SDL_GameControllerOpen(valj) : nullptr;
         if (controller) {
             qDebug() << "Game controller connected:" << SDL_GameControllerName(controller);
             mController = controller;
@@ -2074,7 +2500,7 @@ bool MainWindow::connectJoystick()
 
             connectJs=true;
         } else {
-            qDebug() << "Could not open game controller 0:" << SDL_GetError();
+            qDebug() << "Hittar ingen spelkontroll att öppna:" << SDL_GetError();
         }
     }
 #else
@@ -2088,7 +2514,13 @@ void MainWindow::checkJoystickConnection()
 #ifdef HAS_JOYSTICK
     #if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
     int numJoysticks = SDL_NumJoysticks();
-    
+
+    // Dosan urkopplad och inkopplad mellan två kontroller: antalet är detsamma men
+    // den gamla handtaget är dött. Öppna igen.
+    if (numJoysticks > 0 && !gamepadAttached()) {
+        mLastJoystickCount = -1;
+    }
+
     // Check if joystick count changed
     if (numJoysticks != mLastJoystickCount) {
         mLastJoystickCount = numJoysticks;
@@ -2304,6 +2736,21 @@ void MainWindow::timerSlot()
     }
     ui->mapLiveWidget->setSelectedCar(ui->mapCarBox->value());
 
+    // Dosan låses av sig själv: anslutningen bruten, dosan urkopplad, 5 min utan spakrörelse.
+    if (mJoystickControlEnabled) {
+        if (!mTcpClientMulti->isAnyConnected()) {
+            lockGamepad("Dosan låst: anslutningen till roboten bröts");
+        }
+#ifdef HAS_JOYSTICK
+        else if (!JSconnected()) {
+            lockGamepad("Dosan låst: dosan kopplades ur");
+        }
+#endif
+        else if (mGamepadActivity.isValid() && mGamepadActivity.elapsed() > 5 * 60 * 1000) {
+            lockGamepad("Dosan låst: ingen spakrörelse på 5 minuter");
+        }
+    }
+
     // Joystick connected
 #ifdef HAS_JOYSTICK
     static bool jsWasconn = false;
@@ -2395,6 +2842,14 @@ void MainWindow::updateStatusBox()
     QString vehicle;
     if (mVehicle) {
         bool connected = mTcpClientMulti->isAnyConnected();
+        const QString machine = mTcpClientMulti->connectedIp();
+        if (machine != mVehicleMachine) {
+            mVehicleMachine = machine;
+            mVehicle->setConfig(VehicleConfig::load(machine));
+        }
+        if (connected) {
+            ui->mapLiveWidget->setCarRefAtFront(mVehicle->carId(), isRobAnt(machine));
+        }
         mVehicle->tick(connected);
         if (connected && mStateAge.isValid() && mStateAge.elapsed() < 3000) {
             if (mVehicle->wantAngleQuery()) {
@@ -2586,9 +3041,35 @@ void MainWindow::packetDataToSend(QByteArray &data)
     mTcpClientMulti->sendAll(data);
 }
 
+void MainWindow::applyAutoId(quint8 id)
+{
+    mAutoIdPending = false;
+    mAutoIdTimer->stop();
+    if (mCars.size() != 1 || id == ID_ALL) {
+        return;
+    }
+    int oldId = mCars.first()->getId();
+    if (oldId == id) {
+        return;
+    }
+    // Maskinlistans ID stämmer inte med styrkortets: gör om bilfliken med kortets ID,
+    // så att statusen kommer fram utan att någon behöver leta upp rätt ID.
+    qDebug() << "Bil-ID: maskinlistan säger" << oldId << "men styrkortet har" << id << "- byter.";
+    QString name = ui->carsWidget->tabText(0);
+    removeCars();
+    ui->carsWidget->clear();
+    addCar(id, name, true);
+    ui->mapCarBox->setValue(id);
+    mPacketInterface->getEnuRef(id);
+    showStatusInfo(QString("Bil-ID %1 hämtat från styrkortet (maskinlistan hade %2)").arg(id).arg(oldId), true);
+}
+
 void MainWindow::stateReceived(quint8 id, CAR_STATE state)
 {
     mStateAge.restart();
+    if (mAutoIdPending) {
+        applyAutoId(id);
+    }
     if (mVehicle) {
         mVehicle->stateReceived(id, state);
     }
@@ -2704,6 +3185,57 @@ void MainWindow::applyAutoEnuRef(double lat, double lon, double height)
     ui->mapLiveWidget->setFollowCar(car);
 
     saveMapPosition(lat, lon);
+}
+
+// Flygfotot (ESRI) ligger ofta 1–3 m fel mot RTK: på mk1 körde autopiloten exakt
+// på linjen men linjen var ritad 2 m fel efter fotot (2026-10-16). Ställ roboten på
+// en tydlig plats och flytta fotot tills den ligger rätt även på kartan.
+void MainWindow::adjustMapOffset()
+{
+    MapWidget *map = ui->mapLiveWidget;
+    const double gammalE = map->getOsmOffsetEast();
+    const double gammalN = map->getOsmOffsetNorth();
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Justera flygfoto");
+    QFormLayout *form = new QFormLayout(&dlg);
+    QLabel *info = new QLabel("Ställ roboten på en tydlig plats (t.ex. mitt på vägen) och flytta\n"
+                              "fotot tills roboten ligger på samma plats på kartan.\n"
+                              "Banor och robotens position påverkas inte, bara fotot.", &dlg);
+    form->addRow(info);
+    QDoubleSpinBox *oster = new QDoubleSpinBox(&dlg);
+    QDoubleSpinBox *norr = new QDoubleSpinBox(&dlg);
+    for (QDoubleSpinBox *b : {oster, norr}) {
+        b->setRange(-50.0, 50.0);
+        b->setDecimals(2);
+        b->setSingleStep(0.1);
+        b->setSuffix(" m");
+    }
+    oster->setValue(gammalE);
+    norr->setValue(gammalN);
+    form->addRow("Flytta öster (minus = väster):", oster);
+    form->addRow("Flytta norr (minus = söder):", norr);
+    auto visa = [map, oster, norr]() { map->setOsmOffset(oster->value(), norr->value()); };
+    connect(oster, QOverload<double>::of(&QDoubleSpinBox::valueChanged), &dlg, visa);
+    connect(norr, QOverload<double>::of(&QDoubleSpinBox::valueChanged), &dlg, visa);
+    QDialogButtonBox *knappar = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel
+                                                     | QDialogButtonBox::Reset, &dlg);
+    connect(knappar->button(QDialogButtonBox::Reset), &QPushButton::clicked, &dlg, [oster, norr]() {
+        oster->setValue(0.0);
+        norr->setValue(0.0);
+    });
+    connect(knappar, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(knappar, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(knappar);
+    dlg.move(mapToGlobal(QPoint(20, 80)));  // vid sidan så att kartan syns
+
+    if (dlg.exec() == QDialog::Accepted) {
+        QSettings s("RControlStation", "karta");
+        s.setValue("fotoOster", oster->value());
+        s.setValue("fotoNorr", norr->value());
+    } else {
+        map->setOsmOffset(gammalE, gammalN);
+    }
 }
 
 void MainWindow::saveMapPosition(double lat, double lon)
@@ -3555,6 +4087,106 @@ void MainWindow::fetchFieldsForLogFarm(int farmId)
         }
         reply->deleteLater();
     });
+}
+
+void MainWindow::fetchFieldsForFileAdminFarm(int farmId)
+{
+    qDebug() << "fetchFieldsForFileAdminFarm: Starting for farmId:" << farmId;
+    
+    // Clear existing items in fields combo box
+    ui->comboBoxFileAdminField->clear();
+    ui->lineEditFileAdminPath->clear();
+    
+    // Add loading indicator
+    ui->comboBoxFileAdminField->addItem("Loading fields...");
+    
+    QUrl url(getServerBaseUrl() + "/all_fields");
+    QUrlQuery query;
+    query.addQueryItem("farm", QString::number(farmId));
+    url.setQuery(query);
+    
+    QNetworkRequest request(url);
+    request.setTransferTimeout(10000);
+    
+    QNetworkReply* reply = mNetworkManager->get(request);
+    if (!reply) {
+        qDebug() << "ERROR: reply is null in fetchFieldsForFileAdminFarm!";
+        ui->comboBoxFileAdminField->clear();
+        ui->comboBoxFileAdminField->addItem("Error: Network request failed");
+        return;
+    }
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply, farmId]() {
+        // Clear loading message
+        ui->comboBoxFileAdminField->clear();
+        
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qDebug() << "fetchFieldsForFileAdminFarm HTTP Status Code:" << statusCode;
+        
+        if (reply->error() == QNetworkReply::NoError && statusCode == 200) {
+            QByteArray xmlData = reply->readAll();
+            qDebug() << "Received fields data for farm" << farmId << "(size:" << xmlData.size() << ")";
+            
+            if (!xmlData.isEmpty()) {
+                parseFieldsForFileAdminFarmXml(xmlData);
+            } else {
+                qDebug() << "Empty response for fields";
+                ui->comboBoxFileAdminField->addItem("No fields data");
+            }
+        } else {
+            qDebug() << "Error fetching fields for File Admin:" << reply->errorString();
+            ui->comboBoxFileAdminField->addItem("Error loading fields");
+        }
+        reply->deleteLater();
+    });
+}
+
+void MainWindow::parseFieldsForFileAdminFarmXml(const QByteArray &xmlData)
+{
+    qDebug() << "parseFieldsForFileAdminFarmXml: Starting";
+    
+    QXmlStreamReader xmlReader(xmlData);
+    
+    while (!xmlReader.atEnd()) {
+        QXmlStreamReader::TokenType token = xmlReader.readNext();
+        
+        if (token == QXmlStreamReader::StartElement && xmlReader.name() == QLatin1String("field")) {
+            QString id, name;
+            
+            while (!xmlReader.atEnd()) {
+                token = xmlReader.readNext();
+                
+                if (token == QXmlStreamReader::EndElement && xmlReader.name() == QLatin1String("field")) {
+                    break;
+                }
+                
+                if (token == QXmlStreamReader::StartElement) {
+                    if (xmlReader.name() == QLatin1String("id")) {
+                        token = xmlReader.readNext();
+                        if (token == QXmlStreamReader::Characters) {
+                            id = xmlReader.text().toString();
+                        }
+                    } else if (xmlReader.name() == QLatin1String("name")) {
+                        token = xmlReader.readNext();
+                        if (token == QXmlStreamReader::Characters) {
+                            name = xmlReader.text().toString();
+                        }
+                    }
+                }
+            }
+            
+            if (!name.isEmpty()) {
+                ui->comboBoxFileAdminField->addItem(name, id);
+                qDebug() << "Added field to File Admin tab:" << name << "(ID:" << id << ")";
+            }
+        }
+    }
+    
+    if (xmlReader.hasError()) {
+        qDebug() << "XML parsing error in parseFieldsForFileAdminFarmXml:" << xmlReader.errorString();
+    }
+    
+    qDebug() << "parseFieldsForFileAdminFarmXml: Fields loaded:" << ui->comboBoxFileAdminField->count();
 }
 
 void MainWindow::parseAllFieldsXmlForLog(const QByteArray &xmlData)
@@ -4699,6 +5331,9 @@ void MainWindow::parseAllFarmsXml(const QByteArray &xmlData)
         farmsModel->appendRow(new QStandardItem("No locations"));
         farmsModel->appendRow(new QStandardItem("found"));
     }
+    
+    // Update File Administration farms combo box
+    setupFileAdminTab();
 }
 
 void MainWindow::parseAllFieldsXml(const QByteArray &xmlData)
@@ -4808,6 +5443,12 @@ void MainWindow::parseAllFieldsXml(const QByteArray &xmlData)
         qDebug() << "No fields found in all_fields XML";
         fieldsModel->appendRow(new QStandardItem("No fields"));
         fieldsModel->appendRow(new QStandardItem("found"));
+    }
+    
+    // Update File Administration fields combo box if a farm is selected
+    int currentFarmIndex = ui->comboBoxFileAdminFarm->currentIndex();
+    if (currentFarmIndex >= 0 && farmsModel && currentFarmIndex < farmsModel->rowCount()) {
+        onFileAdminFarmSelected(currentFarmIndex);
     }
 }
 
@@ -4961,6 +5602,12 @@ void MainWindow::parseAllPathsXml(const QByteArray &xmlData)
         qDebug() << "No paths found in all_paths XML";
         modelPath->appendRow(new QStandardItem("No paths"));
         modelPath->appendRow(new QStandardItem("found"));
+    }
+    
+    // Update File Administration paths combo box if a field is selected
+    int currentFieldIndex = ui->comboBoxFileAdminField->currentIndex();
+    if (currentFieldIndex >= 0 && fieldsModel && currentFieldIndex < fieldsModel->rowCount()) {
+        onFileAdminFieldSelected(currentFieldIndex);
     }
 }
 
@@ -5522,6 +6169,13 @@ void MainWindow::on_tcpConnectButton_clicked()
     // Nollpunkten sätts där roboten står så fort första GPS-positionen kommer
     // från rtkrcv (se nmeaGgaRx), vid varje anslutning.
     mAutoEnuRefPending = !connectIpText.isEmpty();
+
+    // En robot per anslutning: fråga kortet vilket ID det har.
+    mAutoIdPending = (mCars.size() == 1);
+    mAutoIdTries = 0;
+    if (mAutoIdPending) {
+        mAutoIdTimer->start();
+    }
     if (mAutoEnuRefPending) {
         qDebug() << "Väntar på robotens GPS-position för att sätta kartans nollpunkt...";
     }
@@ -5617,8 +6271,36 @@ void MainWindow::on_mapAbsYawSlider_sliderReleased()
     on_mapSetAbsYawButton_clicked();
 }
 
+void MainWindow::nodstoppVisa(int lage)
+{
+    if (lage == mNodstoppLage) {
+        return;
+    }
+    mNodstoppLage = lage;
+
+    if (lage >= 1 && lage <= 3) {
+        ui->stopButton->setIcon(QIcon());
+        ui->stopButton->setText("ÅTERSTÄLL");
+        ui->stopButton->setStyleSheet(lage == 2
+            ? "QPushButton { background-color: #e08a1e; color: white; }"
+            : "QPushButton { background-color: #c62828; color: white; }");
+        ui->stopButton->setToolTip(lage == 2
+            ? "Nödstoppet är uppdraget. Tryck för att återställa och köra igen."
+            : "NÖDSTOPP intryckt. Dra upp nödstoppknappen, tryck sedan här.");
+    } else {
+        ui->stopButton->setIcon(mStopIcon);
+        ui->stopButton->setText("STOPP");
+        ui->stopButton->setStyleSheet("");
+        ui->stopButton->setToolTip("Stop all cars");
+    }
+}
+
 void MainWindow::on_stopButton_clicked()
 {
+    if (mNodstoppLage == 1 || mNodstoppLage == 3) {
+        showStatusInfo("Dra upp nödstoppknappen först, tryck sedan ÅTERSTÄLL.", false);
+    }
+
     for (int i = 0;i < mCars.size();i++) {
         mCars[i]->emergencyStop();
     }
@@ -7478,6 +8160,7 @@ void MainWindow::on_mapOsmMaxZoomBox_valueChanged(int arg1)
 void MainWindow::on_mapDrawGridBox_toggled(bool checked)
 {
     ui->mapLiveWidget->setDrawGrid(checked);
+    QSettings("RControlStation", "karta").setValue("rutnat", checked);
 }
 
 void MainWindow::on_mapGetEnuButton_clicked()
@@ -8074,6 +8757,19 @@ void MainWindow::pollGamepad() {
     }
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_CONTROLLERDEVICEADDED && !gamepadAttached()) {
+            // Dosan inkopplad igen (eller en ny): öppna den direkt, ingen omstart behövs.
+            if (connectJoystick()) {
+                ui->statusBar->showMessage("Dosan ansluten", 3000);
+            }
+            continue;
+        }
+        if (event.type == SDL_CONTROLLERDEVICEREMOVED && mController != nullptr &&
+            SDL_GameControllerGetAttached(mController) != SDL_TRUE) {
+            SDL_GameControllerClose(mController);
+            mController = nullptr;
+            continue;
+        }
 //        qDebug() << "button type: " << event.type;
         if (event.type == SDL_CONTROLLERBUTTONDOWN || event.type == SDL_CONTROLLERBUTTONUP) {
             qDebug() << "up or down";
@@ -8124,6 +8820,9 @@ void MainWindow::handleButtonEvent(const SDL_ControllerButtonEvent& event) {
     ui->statusBar->showMessage(QString("Gamepad: %1 %2").arg(buttonName).arg(pressed ? "PRESSED" : "RELEASED"), 3000);
 
     switch (event.button) {
+    case SDL_CONTROLLER_BUTTON_B:
+        setPivotHeld(pressed);
+        break;
     case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
         qDebug() << "Button L1" << pressed;
         mArmL1 = pressed;
@@ -8135,6 +8834,37 @@ void MainWindow::handleButtonEvent(const SDL_ControllerButtonEvent& event) {
         updateArms();
         break;
     }
+}
+
+// RobAnt: O (cirkel) hålls in = vänd på stället. Gas och styrning nollas när
+// knappen trycks; spakens sidled skickas sedan som aktivitet 22 (vändning).
+// Släpps knappen: vändning 0, och spakarna måste röras igen innan roboten kör.
+void MainWindow::setPivotHeld(bool held)
+{
+    if (held == mPivotHeld) {
+        return;
+    }
+    mPivotHeld = held;
+
+    mLastActionValues.remove(ACT_FART);
+    mLastActionValues.remove(ACT_STYRNING);
+    mLastActionValues.remove(ACT_VANDNING);
+    controllerAction(mActiveCarId, ACT_FART, 0.0f);
+    controllerAction(mActiveCarId, held ? ACT_STYRNING : ACT_VANDNING, 0.0f);
+
+    if (held) {
+        // Står spaken redan åt sidan: börja vända direkt
+        for (auto it = mCachedControllerActions.constBegin(); it != mCachedControllerActions.constEnd(); ++it) {
+            if (it.value() == ACT_STYRNING && mCachedControllerValues.value(it.key(), 0.0f) != 0.0f) {
+                float v = mCachedControllerValues.value(it.key());
+                mLastActionValues[ACT_VANDNING] = v;
+                controllerAction(mActiveCarId, ACT_VANDNING, v);
+            }
+        }
+        ui->statusBar->showMessage("Vändning på stället: styr med spaken åt sidan", 3000);
+    }
+    // Glöm spakarnas senaste värden, så att nästa rörelse skickas på nytt
+    mCachedControllerValues.clear();
 }
 
 void MainWindow::handleAxisEvent(const SDL_ControllerAxisEvent& event) {
@@ -8251,6 +8981,262 @@ void selectRowByPrimaryKey(QTableView* tableView, QSqlRelationalTableModel* mode
             break;
         }
     }
+}
+
+void MainWindow::updateGamepadButton()
+{
+    if (!mGamepadButton) {
+        return;
+    }
+    if (mJoystickControlEnabled) {
+        mGamepadButton->setText("🔒 Lås dosa");
+        mGamepadButton->setStyleSheet("QPushButton { background: #c62828; color: white; font-weight: bold; }");
+        mGamepadButton->setToolTip("Dosan kör roboten. Klicka för att låsa.");
+    } else {
+        mGamepadButton->setText("🎮 Aktivera dosa");
+        mGamepadButton->setStyleSheet("QPushButton { background: #2e7d32; color: white; font-weight: bold; }");
+        mGamepadButton->setToolTip("Dosan är låst. Klicka för att köra med dosan (kryssar i Active och Keyboard control).");
+    }
+}
+
+void MainWindow::activateGamepad()
+{
+    QString hinder;
+    if (!mTcpClientMulti->isAnyConnected()) {
+        hinder = "Anslut till roboten först.";
+    }
+#ifdef HAS_JOYSTICK
+    else if (!JSconnected()) {
+        hinder = "Ingen dosa ansluten.";
+    }
+#endif
+    else {
+        for (int c: {5, 6, 7, 8}) {     // spakarna (vänster/höger, x/y)
+            if (qAbs(mCachedControllerValues.value(c, 0.0f)) > 0.1f) {
+                hinder = "Släpp spakarna till mitten först.";
+                break;
+            }
+        }
+    }
+    if (!hinder.isEmpty()) {
+        ui->statusBar->showMessage("Dosan aktiveras inte: " + hinder, 5000);
+        QMessageBox::information(this, "Aktivera dosa", hinder);
+        return;
+    }
+
+    ui->checkBoxActiveKB->setChecked(true);     // setJoystickControlEnabled + knappen
+    for (CarInterface *car: mCars) {
+        if (car->getId() == mActiveCarId) {
+            car->setCtrlKb();                   // Keyboard control i, autopiloten av
+        }
+    }
+    mGamepadActivity.restart();
+    ui->statusBar->showMessage("Dosan aktiverad – roboten kan köras med dosan", 5000);
+}
+
+void MainWindow::lockGamepad(const QString &why)
+{
+    if (!mJoystickControlEnabled) {
+        return;
+    }
+    // Fart och styrning till 0 innan dosan stängs av, så att inget ligger kvar.
+    for (int c: mCachedControllerValues.keys()) {
+        handleControllerInput(c, 0.0f);
+    }
+    ui->checkBoxActiveKB->setChecked(false);    // setJoystickControlEnabled(false) + knappen
+    for (CarInterface *car: mCars) {
+        if (car->getId() == mActiveCarId) {
+            car->setCtrlKbOff();
+        }
+    }
+    ui->statusBar->showMessage(why, 8000);
+}
+
+void MainWindow::autoCenterVisa(int lage)
+{
+    if (!mAutoCenterButton || lage == mAutoCenterLage) {
+        return;
+    }
+    mAutoCenterLage = lage;
+    QString text = "Autocentrering";
+    QString tip;
+    QString stil;
+    switch (lage) {
+    case 1:
+        stil = "QPushButton { background-color: #2e9d3a; color: white; font-weight: bold; }";
+        tip = "PÅ: spaken = hjulens vinkel, hjulen går tillbaka rakt fram själva.\nKlicka för att slå av (sparas i roboten).";
+        break;
+    case 2:
+        tip = "AV: spaken styr styrmotorn direkt.\nKlicka för att slå på (sparas i roboten).";
+        break;
+    case 3:
+        text = "Autocentrering (fel)";
+        tip = "AV p.g.a. fel på vinkelgivaren eller styrningen (orsaken står i terminalen).\nKlicka för att slå på igen.";
+        break;
+    case 0:
+        tip = "Roboten har ingen kalibrerad vinkelgivare.";
+        break;
+    case 4:
+        tip = "Kräver firmware 30.18 eller senare.";
+        break;
+    default:
+        tip = "Inget svar från roboten.";
+        break;
+    }
+    mAutoCenterButton->setText(text);
+    mAutoCenterButton->setStyleSheet(stil);
+    mAutoCenterButton->setToolTip(tip);
+    mAutoCenterButton->setEnabled(lage >= 1 && lage <= 3);
+}
+
+// Vinkelgivaren (firmware 30.4): tre steg, varje steg sparas i styrkortet med
+// terminalkommandona vinkel_noll / vinkel_hoger / vinkel_vanster. Svaren syns i terminalen.
+void MainWindow::calibrateSteeringAngle()
+{
+    if (!mTcpClientMulti->isAnyConnected()) {
+        QMessageBox::warning(this, "Kalibrera styrvinkel", "Anslut till roboten först.");
+        return;
+    }
+    const quint8 id = mVehicle->carId();
+    struct Steg { const char *text; const char *cmd; };
+    const Steg steg[] = {
+        {"Steg 1 av 3: Ställ hjulen <b>rakt fram</b>.<br>Tryck OK när de står rakt.", "vinkel_noll"},
+        {"Steg 2 av 3: Styr <b>fullt höger</b> och låt hjulen stå kvar där.<br>Tryck OK.", "vinkel_hoger"},
+        {"Steg 3 av 3: Styr <b>fullt vänster</b> och låt hjulen stå kvar där.<br>Tryck OK.", "vinkel_vanster"},
+    };
+    // Självcentreringen (firmware 30.5+) drar annars tillbaka hjulen när man
+    // försöker hålla dem i ändläget. Spaken styr motorn direkt under kalibreringen.
+    // (Äldre firmware svarar bara "okänt kommando", ingen skada.)
+    mPacketInterface->sendTerminalCmd(id, "styrlage duty");
+    for (const Steg &s: steg) {
+        if (QMessageBox::question(this, "Kalibrera styrvinkel", s.text,
+                                  QMessageBox::Ok | QMessageBox::Cancel) != QMessageBox::Ok) {
+            mPacketInterface->sendTerminalCmd(id, "styrlage vinkel");
+            showStatusInfo("Kalibreringen avbruten. Det som redan sparats ligger kvar.", false);
+            return;
+        }
+        mPacketInterface->sendTerminalCmd(id, s.cmd);
+    }
+    mPacketInterface->sendTerminalCmd(id, "styrlage vinkel");
+    mPacketInterface->sendTerminalCmd(id, "vinkel");
+    QMessageBox::information(this, "Kalibrera styrvinkel",
+                             "Klart. Svaren från styrkortet står i terminalen.<br>"
+                             "Rakt fram = 0°, fullt höger = +30°, fullt vänster = −30°.");
+}
+
+// RobAnt (styr med bakhjulen) känns igen på namnet eller fordonstypen i maskinlistan.
+bool MainWindow::isRobAnt(const QString &ip) const
+{
+    if (ip.isEmpty()) {
+        return false;
+    }
+    for (int r = 0; r < ui->machinesTable->rowCount(); r++) {
+        QTableWidgetItem *n = ui->machinesTable->item(r, 0);
+        QTableWidgetItem *i = ui->machinesTable->item(r, 1);
+        if (n && i && i->text().trimmed() == ip && n->text().contains("robant", Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    if (machinesModel) {
+        for (int r = 0; r < machinesModel->rowCount(); r++) {
+            if (machinesModel->index(r, 1).data().toString().trimmed() != ip) {
+                continue;
+            }
+            if (machinesModel->index(r, 0).data().toString().contains("robant", Qt::CaseInsensitive)
+                    || machinesModel->index(r, 2).data().toString().contains("robant", Qt::CaseInsensitive)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void MainWindow::openVehicleSettings()
+{
+    const QString machine = mVehicleMachine;
+    VehicleConfig c = VehicleConfig::load(machine);
+
+    QDialog d(this);
+    d.setWindowTitle("Batteri och fordon");
+    QFormLayout *form = new QFormLayout(&d);
+    form->addRow(new QLabel(machine.isEmpty()
+            ? "Ingen maskin ansluten: ändrar <b>standard</b> för alla maskiner."
+            : QString("Maskin: <b>%1</b>").arg(machine.toHtmlEscaped())));
+
+    QComboBox *type = new QComboBox(&d);
+    type->addItem("LiFePO4 (cellernas vilospänning)", "lifepo4");
+    type->addItem("Linjärt mellan tom och full spänning", "linear");
+    type->setCurrentIndex(c.batteryType == "linear" ? 1 : 0);
+    QSpinBox *cells = new QSpinBox(&d);
+    cells->setRange(1, 64);
+    cells->setValue(c.seriesCells);
+    cells->setSuffix(" celler i serie");
+    QDoubleSpinBox *emptyV = new QDoubleSpinBox(&d);
+    emptyV->setRange(0.0, 200.0);
+    emptyV->setDecimals(1);
+    emptyV->setSuffix(" V");
+    emptyV->setValue(c.emptyV);
+    QDoubleSpinBox *fullV = new QDoubleSpinBox(&d);
+    fullV->setRange(0.0, 200.0);
+    fullV->setDecimals(1);
+    fullV->setSuffix(" V");
+    fullV->setValue(c.fullV);
+    QDoubleSpinBox *cap = new QDoubleSpinBox(&d);
+    cap->setRange(0.0, 100000.0);
+    cap->setDecimals(0);
+    cap->setSuffix(" Wh");
+    cap->setSpecialValueText("okänd (ingen räckvidd)");
+    cap->setValue(c.capacityWh);
+    QDoubleSpinBox *steer = new QDoubleSpinBox(&d);
+    steer->setRange(1.0, 90.0);
+    steer->setDecimals(1);
+    steer->setSuffix(" °");
+    steer->setValue(c.steeringMaxDeg);
+    QCheckBox *asDefault = new QCheckBox("Spara även som standard för maskiner utan egen inställning", &d);
+    asDefault->setChecked(machine.isEmpty());
+    asDefault->setEnabled(!machine.isEmpty());
+
+    form->addRow("Batterityp", type);
+    form->addRow("LiFePO4", cells);
+    form->addRow("Tom (0 %)", emptyV);
+    form->addRow("Full (100 %)", fullV);
+    form->addRow("Kapacitet", cap);
+    form->addRow("Största styrvinkel", steer);
+    form->addRow(asDefault);
+    form->addRow(new QLabel("<small>Exempel: 4 × 12,8 V 80 Ah LiFePO4 = 16 celler, 4096 Wh.<br>"
+                            "Kapaciteten = spänning × amperetimmar. Används för nedräkning och räckvidd.</small>"));
+    auto updateEnabled = [=]() {
+        const bool lifepo4 = type->currentData().toString() == "lifepo4";
+        cells->setEnabled(lifepo4);
+        emptyV->setEnabled(!lifepo4);
+        fullV->setEnabled(!lifepo4);
+    };
+    connect(type, QOverload<int>::of(&QComboBox::currentIndexChanged), &d, updateEnabled);
+    updateEnabled();
+
+    QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &d);
+    connect(buttons, &QDialogButtonBox::accepted, &d, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &d, &QDialog::reject);
+    form->addRow(buttons);
+
+    if (d.exec() != QDialog::Accepted) {
+        return;
+    }
+    if (type->currentData().toString() == "linear" && fullV->value() <= emptyV->value()) {
+        QMessageBox::warning(this, "Batteri och fordon", "Full spänning måste vara högre än tom.");
+        return;
+    }
+    c.batteryType = type->currentData().toString();
+    c.seriesCells = cells->value();
+    c.emptyV = emptyV->value();
+    c.fullV = fullV->value();
+    c.capacityWh = cap->value();
+    c.steeringMaxDeg = steer->value();
+    c.save(machine);
+    if (!machine.isEmpty() && asDefault->isChecked()) {
+        c.save(QString());
+    }
+    mVehicle->setConfig(c);
 }
 
 QString MainWindow::getServerBaseUrl() const

@@ -1,2 +1,0 @@
-# This is a backup of the original CMakeLists.txt file
-# The main file has been updated to handle missing Qt6 components gracefully

@@ -80,3 +80,14 @@ SESSION_STATUS.md
 # Kartbrickor (cache som RControlStation laddar ner själv) och Python-cache
 osm_tiles/
 __pycache__/
+
+# Byggfiler och skräp som inte ska in i repot (städat 2026-10-06)
+*.o
+*.pyc
+__pycache__/
+.qmake.stash
+*.swp
+*.backup
+Embedded/RTCM_Forwarder_Project/build/
+Linux/CarNetworkTester/build/
+Embedded/RC_Controller/fw_*.bin

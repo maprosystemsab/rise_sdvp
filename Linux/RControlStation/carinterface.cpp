@@ -397,6 +397,14 @@ void CarInterface::setCtrlAp()
     }
 }
 
+void CarInterface::setCtrlKbOff()
+{
+    ui->keyboardControlBox->setChecked(false);
+    if (mPacketInterface) {
+        mPacketInterface->setKbActive(mId, false);
+    }
+}
+
 void CarInterface::setCtrlKb()
 {
     ui->autopilotBox->setChecked(false);

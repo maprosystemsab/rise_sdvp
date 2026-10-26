@@ -15,7 +15,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <math.h>
 #include "adconv.h"
+#include "styr_position.h"
 #include "utils.h"
 #include "conf_general.h"
 #include "terminal.h"
@@ -42,15 +44,23 @@ static float vin_filter = 0.0;
 
 static void terminal_cmd_get_vin(int argc, const char **argv);
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
+#ifdef IS_ROVMCU
+// MP101: vinkelgivaren på J30 stift 2 (PA4, ADC-kanal 4) är plats 2 i sekvensen.
+#define ANGLE_SAMPLE_INDEX		1
+#else
 // Vinkelgivaren på PA3 (ADC-kanal 3) ligger på plats 6 i sekvensen (samples[5]),
 // som annars var en dubblett av IN11.
 #define ANGLE_SAMPLE_INDEX		5
+#endif
 extern float frontangle;
 extern uint16_t last_sensorvalue;
 static float angle_mv_filter = 0.0;
 static bool angle_sensor_ok = false;
 static void terminal_cmd_angle(int argc, const char **argv);
+static void terminal_cmd_angle_zero(int argc, const char **argv);
+static void terminal_cmd_angle_right(int argc, const char **argv);
+static void terminal_cmd_angle_left(int argc, const char **argv);
 #endif
 
 static void adccallback(ADCDriver *adcp, adcsample_t *buffer, size_t n) {
@@ -70,7 +80,7 @@ static void adccallback(ADCDriver *adcp, adcsample_t *buffer, size_t n) {
 #endif
 	UTILS_LP_FAST(vin_filter, sample, 0.02);
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 	// Givarens egen spänning (före spänningsdelaren) i mV
 	float angle_mv = (samples[ANGLE_SAMPLE_INDEX] / 4095.0 * v_reg) * ANGLE_SENSOR_DIVIDER * 1000.0;
 	UTILS_LP_FAST(angle_mv_filter, angle_mv, 0.02);
@@ -163,12 +173,27 @@ void adconv_init(void) {
 			0,
 			terminal_cmd_get_vin);
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 	terminal_register_command_callback(
 			"vinkel",
 			"Vinkelgivaren: spänning (mV), vinkel och status.",
 			0,
 			terminal_cmd_angle);
+	terminal_register_command_callback(
+			"vinkel_noll",
+			"Kalibrera vinkelgivaren: hjulen rakt fram nu. Sparas i styrkortet.",
+			0,
+			terminal_cmd_angle_zero);
+	terminal_register_command_callback(
+			"vinkel_hoger",
+			"Kalibrera vinkelgivaren: hjulen fullt höger nu. Sparas i styrkortet.",
+			0,
+			terminal_cmd_angle_right);
+	terminal_register_command_callback(
+			"vinkel_vanster",
+			"Kalibrera vinkelgivaren: hjulen fullt vänster nu. Sparas i styrkortet.",
+			0,
+			terminal_cmd_angle_left);
 #endif
 }
 
@@ -236,14 +261,46 @@ static void terminal_cmd_get_vin(int argc, const char **argv) {
 #endif
 }
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
+/**
+ * Givarens spänning rakt fram (mV). Kalibreras med `vinkel_noll` och sparas i
+ * main_config.vehicle.sensorcentre; orimligt värde (t.ex. standard 580 från
+ * äldre maskiner) -> ANGLE_SENSOR_CENTER_MV.
+ */
+static float angle_center_mv(void) {
+	float c = main_config.vehicle.sensorcentre;
+	return (c > 500.0 && c < 4500.0 && c != 580.0) ? c : ANGLE_SENSOR_CENTER_MV;
+}
+
+/**
+ * Trepunktskalibrering (vinkel_noll, vinkel_hoger, vinkel_vanster). Ändlägena
+ * sparas i sensorinterval (höger) och degreeinterval (vänster), som inte används
+ * för vinkelgivaren på PA3. Giltig om båda ändlägena ligger på var sin sida om
+ * mitten; annars används den linjära ANGLE_SENSOR_DEG_PER_MV.
+ */
+static bool angle_cal_mv(float *c, float *r, float *l) {
+	*c = angle_center_mv();
+	*r = main_config.vehicle.sensorinterval;
+	*l = main_config.vehicle.degreeinterval;
+	bool in_range = *r > 100.0 && *r < 4900.0 && *l > 100.0 && *l < 4900.0;
+	return in_range && fabsf(*r - *c) > 50.0 && fabsf(*l - *c) > 50.0 && (*r - *c) * (*l - *c) < 0.0;
+}
+
 /**
  * Räkna om vinkelgivarens spänning till vinkel. Anropas var 10:e ms från main.
  * Vid givarfel (spänning nära 0 V: magneten saknas eller kabeln av) behålls
  * senaste vinkeln och statusen blir "fel".
  */
 void adconv_update_angle(void) {
-	float mv = angle_mv_filter;
+	// Extra lågpass (var 10:e ms, tidskonstant ca 0,15 s): med VESC:erna strömsatta
+	// brusade vinkeln ±1° (mk1 2026-10-15) och syntes som hopp i Robotstyrning.
+	static float mv_lugn = -1.0;
+	if (mv_lugn < 0.0 || fabsf(angle_mv_filter - mv_lugn) > 400.0) {
+		mv_lugn = angle_mv_filter;	// start, eller givaren kopplad/bortkopplad: följ direkt
+	} else {
+		UTILS_LP_FAST(mv_lugn, angle_mv_filter, 0.065);
+	}
+	float mv = mv_lugn;
 	last_sensorvalue = (uint16_t)(mv < 0.0 ? 0.0 : mv);	// mV, skickas med i statusen
 
 	if (mv < ANGLE_SENSOR_MIN_MV) {
@@ -252,7 +309,17 @@ void adconv_update_angle(void) {
 	}
 
 	angle_sensor_ok = true;
-	frontangle = (mv - ANGLE_SENSOR_CENTER_MV) * ANGLE_SENSOR_DEG_PER_MV;
+	float c, r, l;
+	if (angle_cal_mv(&c, &r, &l)) {
+		// Höger = +ANGLE_SENSOR_MAX_DEG, vänster = -ANGLE_SENSOR_MAX_DEG, linjärt på var sida.
+		if ((mv - c) * (r - c) >= 0.0) {
+			frontangle = (mv - c) / (r - c) * ANGLE_SENSOR_MAX_DEG;
+		} else {
+			frontangle = -(mv - c) / (l - c) * ANGLE_SENSOR_MAX_DEG;
+		}
+	} else {
+		frontangle = (mv - c) * ANGLE_SENSOR_DEG_PER_MV;
+	}
 	comm_can_io_board_as5047_setangle(frontangle);
 }
 
@@ -260,11 +327,73 @@ bool adconv_angle_sensor_ok(void) {
 	return angle_sensor_ok;
 }
 
+bool adconv_angle_calibrated(void) {
+	float c, r, l;
+	return angle_cal_mv(&c, &r, &l);
+}
+
 static void terminal_cmd_angle(int argc, const char **argv) {
 	(void)argc;
 	(void)argv;
-	commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s\n",
-			(double)angle_mv_filter, (double)frontangle,
-			angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)");
+	float c, r, l;
+	bool cal = angle_cal_mv(&c, &r, &l);
+	if (cal) {
+		// "[autocentrering N]" (styrpos_status) läses av robotd för knappen i Robotstyrning.
+		commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram %.0f mV, höger %.0f mV, vänster %.0f mV) [autocentrering %d]\n",
+				(double)angle_mv_filter, (double)frontangle,
+				angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)",
+				(double)c, (double)r, (double)l, styrpos_status());
+	} else {
+		commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram %.0f mV, höger/vänster ej kalibrerat) [autocentrering %d]\n",
+				(double)angle_mv_filter, (double)frontangle,
+				angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)",
+				(double)c, styrpos_status());
+	}
+}
+
+static void terminal_cmd_angle_zero(int argc, const char **argv) {
+	(void)argc;
+	(void)argv;
+	if (!angle_sensor_ok) {
+		commands_printf("Vinkelgivaren svarar inte (ingen magnet/kabel?) - inget sparat.\n");
+		return;
+	}
+	main_config.vehicle.sensorcentre = angle_mv_filter;
+	conf_general_store_main_config(&main_config);
+	commands_printf("Vinkelgivaren kalibrerad: rakt fram = %.0f mV. Sparat i styrkortet.\n",
+			(double)angle_mv_filter);
+}
+
+static void angle_store_end(bool right) {
+	if (!angle_sensor_ok) {
+		commands_printf("Vinkelgivaren svarar inte (ingen magnet/kabel?) - inget sparat.\n");
+		return;
+	}
+	float c = angle_center_mv();
+	if (fabsf(angle_mv_filter - c) <= 50.0) {
+		commands_printf("Hjulen står nästan rakt (%.0f mV, rakt fram %.0f mV). Styr fullt %s och försök igen.\n",
+				(double)angle_mv_filter, (double)c, right ? "höger" : "vänster");
+		return;
+	}
+	if (right) {
+		main_config.vehicle.sensorinterval = angle_mv_filter;
+	} else {
+		main_config.vehicle.degreeinterval = angle_mv_filter;
+	}
+	conf_general_store_main_config(&main_config);
+	commands_printf("Vinkelgivaren kalibrerad: fullt %s = %.0f mV (%s%.0f grader). Sparat i styrkortet.\n",
+			right ? "höger" : "vänster", (double)angle_mv_filter, right ? "" : "-", (double)ANGLE_SENSOR_MAX_DEG);
+}
+
+static void terminal_cmd_angle_right(int argc, const char **argv) {
+	(void)argc;
+	(void)argv;
+	angle_store_end(true);
+}
+
+static void terminal_cmd_angle_left(int argc, const char **argv) {
+	(void)argc;
+	(void)argv;
+	angle_store_end(false);
 }
 #endif

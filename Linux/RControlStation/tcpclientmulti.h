@@ -31,6 +31,7 @@ public:
 
     void addConnection(QString ip, int port);
     bool isAnyConnected();
+    QString connectedIp();  // adressen till första anslutna maskinen, annars tom
     void disconnectAll();
     void sendAll(QByteArray data);
 
@@ -114,6 +115,10 @@ private:
 
         bool isTcpConnected() {
             return socket.isOpen();
+        }
+
+        QString ip() const {
+            return attempedip;
         }
 
     private:

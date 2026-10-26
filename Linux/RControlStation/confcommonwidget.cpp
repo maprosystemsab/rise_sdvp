@@ -71,6 +71,20 @@ void ConfCommonWidget::populateActionsComboBoxes(const QList<QPair<int, QString>
         ui->comboBox_motor3_action->addItem(name, QVariant(id));
         ui->comboBox_motor4_action->addItem(name, QVariant(id));
     }
+
+    // RobAnt: drivsidorna var för sig, för vändning på stället (firmwaren, aktivitet 20/21)
+    const QList<QPair<int, QString>> robant = {
+        {20, "Fart vänster (RobAnt)"},
+        {21, "Fart höger (RobAnt)"}
+    };
+    for (const auto& a : robant) {
+        if (ui->comboBox_motor1_action->findData(a.first) < 0) {
+            ui->comboBox_motor1_action->addItem(a.second, QVariant(a.first));
+            ui->comboBox_motor2_action->addItem(a.second, QVariant(a.first));
+            ui->comboBox_motor3_action->addItem(a.second, QVariant(a.first));
+            ui->comboBox_motor4_action->addItem(a.second, QVariant(a.first));
+        }
+    }
 }
 
 void ConfCommonWidget::populateModesComboBoxes(const QList<QPair<int, QString>>& modes)

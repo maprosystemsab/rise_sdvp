@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QtEndian>
@@ -12,9 +13,6 @@ namespace {
 const int CMD_GET_VESC_STATUS = 140;
 const int VESC_ENTRY_LEN = 11;          // id(1) ålder ms(2) rpm(4) ström*10(2) duty*1000(2)
 const int VESC_FRESH_MS = 2000;
-const double STEERING_MAX_DEG = 25.0;   // RobAnt: STEERINGANGLE_MAX
-const double CAPACITY_WH = 4096.0;      // 4 × 12,8 V × 80 Ah
-const int CELLS = 16;
 const double REST_FOR_PERCENT_S = 60.0; // stilla så länge -> ny procent ur spänningen
 const double REST_BEFORE_CHARGE_S = 90.0;
 const double CHARGE_WINDOW_S = 60.0;
@@ -32,6 +30,67 @@ const double LIFEPO4_CELL[][2] = {
     {2.50, 0.0}, {3.00, 10.0}, {3.20, 20.0}, {3.22, 30.0}, {3.25, 40.0}, {3.26, 50.0},
     {3.27, 60.0}, {3.30, 70.0}, {3.32, 80.0}, {3.35, 90.0}, {3.40, 100.0},
 };
+}
+
+namespace {
+// Gruppen i QSettings för en maskin: "fordon/<adress>", eller "fordon/standard".
+QString machineKey(const QString &machine)
+{
+    QString key = machine.trimmed().isEmpty() ? QString("standard") : machine.trimmed();
+    return key.replace('/', '_');
+}
+
+void readConfig(QSettings &s, const QString &key, VehicleConfig &c)
+{
+    s.beginGroup("fordon/" + key);
+    c.batteryType = s.value("batterityp", c.batteryType).toString();
+    c.seriesCells = s.value("celler", c.seriesCells).toInt();
+    c.emptyV = s.value("tom_v", c.emptyV).toDouble();
+    c.fullV = s.value("full_v", c.fullV).toDouble();
+    c.capacityWh = s.value("kapacitet_wh", c.capacityWh).toDouble();
+    c.steeringMaxDeg = s.value("styrvinkel_max", c.steeringMaxDeg).toDouble();
+    s.endGroup();
+}
+}
+
+VehicleConfig VehicleConfig::load(const QString &machine)
+{
+    QSettings s("RControlStation", "fordon");
+    VehicleConfig c;                         // inbyggda värden
+    readConfig(s, "standard", c);            // standard för alla maskiner, om sparad
+    if (!machine.trimmed().isEmpty()) {
+        s.beginGroup("fordon");
+        const bool finns = s.childGroups().contains(machineKey(machine));
+        s.endGroup();
+        if (finns) {
+            readConfig(s, machineKey(machine), c);   // just den här maskinen
+        }
+    }
+    return c;
+}
+
+void VehicleConfig::save(const QString &machine) const
+{
+    QSettings s("RControlStation", "fordon");
+    s.beginGroup("fordon/" + machineKey(machine));
+    s.setValue("batterityp", batteryType);
+    s.setValue("celler", seriesCells);
+    s.setValue("tom_v", emptyV);
+    s.setValue("full_v", fullV);
+    s.setValue("kapacitet_wh", capacityWh);
+    s.setValue("styrvinkel_max", steeringMaxDeg);
+    s.endGroup();
+}
+
+QString VehicleConfig::describe() const
+{
+    QString t = batteryType == "linear"
+            ? QString("linjärt %1–%2 V").arg(emptyV, 0, 'f', 1).arg(fullV, 0, 'f', 1)
+            : QString("LiFePO4 %1 celler").arg(seriesCells);
+    if (capacityWh > 0.0) {
+        t += QString(", %1 Wh").arg(capacityWh, 0, 'f', 0);
+    }
+    return t;
 }
 
 VehicleData::VehicleData(QObject *parent) : QObject(parent)
@@ -158,7 +217,13 @@ bool VehicleData::wantVescQuery()
 
 double VehicleData::batteryPercent(double v)
 {
-    return lifepo4Percent(v, CELLS);
+    if (mCfg.batteryType == "linear") {
+        if (mCfg.fullV <= mCfg.emptyV) {
+            return 0.0;
+        }
+        return qBound(0.0, (v - mCfg.emptyV) / (mCfg.fullV - mCfg.emptyV) * 100.0, 100.0);
+    }
+    return lifepo4Percent(v, mCfg.seriesCells);
 }
 
 void VehicleData::tick(bool connected)
@@ -223,8 +288,8 @@ void VehicleData::tick(bool connected)
         mRestPercent = voltPercent;
         mRestEnergyWh = mEnergyWh;
     }
-    mPercent = mRestPercent < 0.0 ? voltPercent
-            : qBound(0.0, mRestPercent - (mEnergyWh - mRestEnergyWh) / CAPACITY_WH * 100.0, 100.0);
+    mPercent = (mRestPercent < 0.0 || mCfg.capacityWh <= 0.0) ? voltPercent
+            : qBound(0.0, mRestPercent - (mEnergyWh - mRestEnergyWh) / mCfg.capacityWh * 100.0, 100.0);
 
     // Laddning: stilla minst 90 s och spänningen stiger mer än 0,05 V/min.
     mCharging = -1;
@@ -254,7 +319,9 @@ void VehicleData::tick(bool connected)
     mRangeKm = -1.0;
     if (mDistanceM >= MIN_DISTANCE_FOR_RATE_M && mEnergyWh > 0.0) {
         mWhPerKm = mEnergyWh / (mDistanceM / 1000.0);
-        mRangeKm = mPercent / 100.0 * CAPACITY_WH / mWhPerKm;
+        if (mCfg.capacityWh > 0.0) {
+            mRangeKm = mPercent / 100.0 * mCfg.capacityWh / mWhPerKm;
+        }
     }
 
     // Körlogg: en rad per sekund.
@@ -295,7 +362,7 @@ void VehicleData::writeLog()
       << (mWhPerKm > 0 ? f(mWhPerKm, 1) : QString())
       << (mRangeKm >= 0 ? f(mRangeKm, 2) : QString())
       << (mHaveAngle ? f(mAngleDeg, 1) : QString())
-      << (mHaveAngle ? f(qBound(-100.0, mAngleDeg / STEERING_MAX_DEG * 100.0, 100.0), 0) : QString())
+      << (mHaveAngle ? f(qBound(-100.0, mAngleDeg / mCfg.steeringMaxDeg * 100.0, 100.0), 0) : QString())
       << f(mState.roll, 1) << f(mState.pitch, 1) << f(mState.yaw, 1)
       << f(mState.temp_fet, 1)
       << (mHavePower ? QString::number(mVescFresh) : QString())
@@ -327,6 +394,7 @@ QString VehicleData::html() const
     if (mPercent < 15.0) {
         out += "<br><span style='color:#c00'><b>⚠ Lågt batteri – kör hem och ladda</b></span>";
     }
+    out += QString("<br><small style='color:#777'>%1</small>").arg(mCfg.describe().toHtmlEscaped());
 
     // Räckvidd
     if (mRangeKm >= 0.0) {
@@ -343,7 +411,7 @@ QString VehicleData::html() const
 
     // Styrning
     if (mHaveAngle && mAngleOk) {
-        double pct = qBound(-100.0, mAngleDeg / STEERING_MAX_DEG * 100.0, 100.0);
+        double pct = qBound(-100.0, mAngleDeg / mCfg.steeringMaxDeg * 100.0, 100.0);
         QString side = std::fabs(pct) < 3.0 ? QString("rakt")
                 : (pct < 0 ? QString("V %1 %").arg(-pct, 0, 'f', 0) : QString("H %1 %").arg(pct, 0, 'f', 0));
         out += QString("<br><b>Styrning:</b> %1 (%2°)").arg(side).arg(mAngleDeg, 0, 'f', 0);

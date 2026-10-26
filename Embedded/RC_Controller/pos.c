@@ -38,6 +38,7 @@
 #include "comm_can.h"
 #include "hydraulic.h"
 #include "pos.h"
+#include "adconv.h"
 #include "bmi160_wrapper.h"
 #include "bmi270_wrapper.h"
 
@@ -105,6 +106,25 @@ int iDebug;
 
 static void mc_values_received(mc_values *val);
 static void vehicle_update_pos(float distance, float turn_rad_rear, float angle_diff, float speed);
+
+/**
+ * Styrvinkel (rad, matematiskt: + = vänster) för positionsberäkningen mellan
+ * GPS-uppdateringarna. RobAnt med vinkelgivare på PA3: frontangle (grader,
+ * + = höger). Förut lästes servopositionen, som på RobAnt räknades om från
+ * frontangle som om den vore en gammal AS5047-vinkel (178–240°): rakt fram blev
+ * ca −200°, så kursen snurrade och positionen hoppade när roboten rullade
+ * (autopiloten på mk1 2026-10-15).
+ */
+static float pos_steering_angle_rad(void) {
+#ifdef ANGLE_SENSOR
+	extern float frontangle;
+	return adconv_angle_sensor_ok() ? -frontangle * (float)M_PI / 180.0f : 0.0f;
+#else
+	return (servo_simple_get_pos_now() - main_config.vehicle.steering_center)
+			* ((2.0 * main_config.vehicle.steering_max_angle_rad)
+					/ main_config.vehicle.steering_range);
+#endif
+}
 
 void pos_init(void) {
 	ahrs_init_attitude_info(&m_att);		// Sets initial ahrs values to zero
@@ -916,7 +936,19 @@ static void mpu9150_read(float *accel, float *gyro, float *mag) {
 
 	if (mc_read_cnt >= 10) {
 		mc_read_cnt = 0;
+#ifdef IS_ROBANT
+		// Fråga alltid första motorn i motorlistan (en drivmotor på 48 V-batteriet),
+		// inte den VESC som råkar ha fått senaste kommandot. Batterispänning,
+		// temperatur och felkod i RControlStation kommer härifrån.
+		comm_can_lock_vesc();
+		if (main_config.vehicle.actuators > 0) {
+			comm_can_set_vesc_id(main_config.vehicle.actuator[0].motorid);
+		}
 		bldc_interface_get_values();
+		comm_can_unlock_vesc();
+#else
+		bldc_interface_get_values();
+#endif
 
 	//	#if HAS_HYDRAULIC_DRIVE
 		float turn_rad_rear = 0.0;
@@ -925,10 +957,7 @@ static void mpu9150_read(float *accel, float *gyro, float *mag) {
 
 		float speed = hydraulic_get_speed();
 
-		float steering_angle = (servo_simple_get_pos_now()
-				- main_config.vehicle.steering_center)
-							* ((2.0 * main_config.vehicle.steering_max_angle_rad)
-									/ main_config.vehicle.steering_range);
+		float steering_angle = pos_steering_angle_rad();
 
 
 		if (fabsf(steering_angle) >= 1e-6) {
@@ -1262,6 +1291,48 @@ static void correct_pos_gps(POS_STATE *pos)
 		commands_printf("time gps last corr: %f\n",(double) pos->gps_ang_corr_last_gps_ms);
 	}
 
+#ifdef IS_ROBANT
+	// RobAnt med RTK (fix/float): rätta hårt. Den vanliga rättningen (högst ca 6 cm
+	// och 0,2° per GPS-position) hann inte med: bilen på kartan sprang ifrån
+	// GPS-punkten så fort kursen var lite fel (mk1 2026-10-16).
+	if (pos->gps_fix_type == 4 || pos->gps_fix_type == 5) {
+		const float yaw_min_dist = 0.3;		// m mellan GPS-punkterna kursen räknas från
+		const int32_t yaw_max_ms = 1000;	// äldre baspunkt: börja om (positionshistoriken är kort)
+		const float andel = 1.0 / 3.0;		// del av felet som rättas per GPS-position
+
+		int32_t dt_ms = pos->gps_ms - pos->gps_ang_corr_last_gps_ms;
+		float moved = utils_point_distance(pos->px_gps, pos->py_gps,
+				pos->gps_ang_corr_x_last_gps, pos->gps_ang_corr_y_last_gps);
+
+		if (dt_ms < 0 || dt_ms > yaw_max_ms) {
+			pos->gps_ang_corr_x_last_gps = pos->px_gps;
+			pos->gps_ang_corr_y_last_gps = pos->py_gps;
+			pos->gps_ang_corr_last_gps_ms = pos->gps_ms;
+		} else if (moved >= yaw_min_dist) {
+			float yaw_gps = -atan2f(pos->py_gps - pos->gps_ang_corr_y_last_gps,
+					pos->px_gps - pos->gps_ang_corr_x_last_gps) * 180.0 / M_PI;
+			// GPS ger färdriktningen; vid backning pekar nosen tvärtom.
+			if (pos->speed < 0.0f) {
+				yaw_gps += 180.0f;
+				utils_norm_angle(&yaw_gps);
+			}
+			POS_POINT mid = get_closest_point_to_time(
+					(pos->gps_ms + pos->gps_ang_corr_last_gps_ms) / 2.0);
+			m_imu_yaw_offset -= utils_angle_difference(yaw_gps, mid.yaw) * andel;
+			utils_norm_angle(&m_imu_yaw_offset);
+
+			pos->gps_ang_corr_x_last_gps = pos->px_gps;
+			pos->gps_ang_corr_y_last_gps = pos->py_gps;
+			pos->gps_ang_corr_last_gps_ms = pos->gps_ms;
+		}
+
+		POS_POINT closest = get_closest_point_to_time(m_en_delay_comp ? pos->gps_ms : m_ms_today);
+		pos->px += (pos->px_gps - closest.px) * andel;
+		pos->py += (pos->py_gps - closest.py) * andel;
+		return;
+	}
+#endif
+
 	// If has a speed of at least 0.5 km/h
 	// Yaw = Angle on the x/y plane (i.e. the angle that is most relevant on you are on ground)
 	// Angle
@@ -1269,6 +1340,12 @@ static void correct_pos_gps(POS_STATE *pos)
 		//Calculate yaw from gps
 		float yaw_gps = -atan2f(pos->py_gps - pos->gps_ang_corr_y_last_gps,
 				pos->px_gps - pos->gps_ang_corr_x_last_gps) * 180.0 / M_PI;
+		// GPS ger färdriktningen. Vid backning pekar nosen tvärtom: annars drogs
+		// kursen mot 180° fel varje gång roboten backade (mk1 2026-10-16).
+		if (pos->speed < 0.0f) {
+			yaw_gps += 180.0f;
+			utils_norm_angle(&yaw_gps);
+		}
 		if(iDebug==44)
 		{
 			commands_printf("yaw gps: %f\n",(double) yaw_gps);
@@ -1432,10 +1509,7 @@ static void mc_values_received(mc_values *val) {
         utils_norm_angle_rad(&angle_diff);
     }
 	#elif !defined(MISTRAL)
-    float steering_angle = (servo_simple_get_pos_now()
-            - main_config.vehicle.steering_center)
-            * ((2.0 * main_config.vehicle.steering_max_angle_rad)
-                    / main_config.vehicle.steering_range);
+    float steering_angle = pos_steering_angle_rad();
 
     if (fabsf(steering_angle) >= 1e-6) {
         turn_rad_rear = main_config.vehicle.axis_distance / tanf(steering_angle);

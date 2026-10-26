@@ -46,6 +46,7 @@ public:
     ~CarInterface();
     void setID(int id);
     int getId();
+    void setCtrlKbOff();   // bocka ur Keyboard control (dosan låst)
     bool pollData();
     void setPollData(bool poll);
     bool updateRouteFromMap();

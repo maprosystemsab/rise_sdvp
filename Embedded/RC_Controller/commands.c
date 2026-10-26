@@ -35,6 +35,7 @@
 #include "log.h"
 #include "ublox.h"
 #include "adconv.h"
+#include "styr_position.h"
 #include "motor_sim.h"
 #include "m8t_base.h"
 #include "pos_uwb.h"
@@ -103,6 +104,8 @@ float debugvalue13;  // Debug value 13 (general purpose)
 float debugvalue14;  // Debug value 14 (general purpose)
 float debugvalue15;  // Debug value 15 (general purpose)
 float frontangle=0.0; // Front angle from sensor (degrees)
+// Senaste CMD_RC_CONTROL_ADV (se CMD_RC_CONTROL: det gamla ignoreras då på RobAnt).
+static systime_t m_adv_senast = 0;
 static bool arduino_connected = false; // Flag indicating if Arduino is connected
 bool m_kb_active; // Flag indicating if keyboard control is active
 
@@ -743,9 +746,32 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			main_config.vehicle.vesc_i_gain = buffer_get_float32_auto(data, &ind);
 			main_config.vehicle.vesc_d_gain = buffer_get_float32_auto(data, &ind);
 
-			main_config.vehicle.sensorcentre = buffer_get_float32_auto(data, &ind);
-			main_config.vehicle.sensorinterval = buffer_get_float32_auto(data, &ind);
-			main_config.vehicle.degreeinterval = buffer_get_float32_auto(data, &ind);
+			{
+				float c = buffer_get_float32_auto(data, &ind);
+				float r = buffer_get_float32_auto(data, &ind);
+				float l = buffer_get_float32_auto(data, &ind);
+#ifdef ANGLE_SENSOR
+				// Vinkelgivarens kalibrering (rakt fram/höger/vänster i mV) ändras med
+				// vinkel_noll/hoger/vanster. RControlStations Write skickar gamla värden
+				// ur sitt fönster (t.ex. 1024/1024/100) och raderade kalibreringen på mk1
+				// 2026-10-15. Ta bara emot en giltig trepunktskalibrering.
+				bool giltig = c > 500.0 && c < 4500.0 && c != 580.0
+						&& r > 100.0 && r < 4900.0 && l > 100.0 && l < 4900.0
+						&& fabsf(r - c) > 50.0 && fabsf(l - c) > 50.0 && (r - c) * (l - c) < 0.0;
+				if (giltig) {
+					main_config.vehicle.sensorcentre = c;
+					main_config.vehicle.sensorinterval = r;
+					main_config.vehicle.degreeinterval = l;
+				} else {
+					commands_printf("Write: vinkelgivarens kalibrering behålls (%.0f/%.0f/%.0f mV ignoreras).",
+							(double)c, (double)r, (double)l);
+				}
+#else
+				main_config.vehicle.sensorcentre = c;
+				main_config.vehicle.sensorinterval = r;
+				main_config.vehicle.degreeinterval = l;
+#endif
+			}
 			float deadband= buffer_get_float32_auto(data, &ind);
 			main_config.vehicle.deadband =deadband;
 
@@ -1148,6 +1174,95 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			commands_send_packet(m_send_buffer, send_index);
 		} break;
 
+		case CMD_PING_VESC_CAN: {
+			// Pingar ID 0-253 på CAN (som VESC Tool) och svarar med de som
+			// svarade: [id][cmd] { [vesc_id u8] } för varje VESC.
+			commands_set_send_func(func);
+
+			uint8_t ids[64];
+			int n = comm_can_ping_vescs(ids, sizeof(ids));
+
+			int32_t send_index = 0;
+			m_send_buffer[send_index++] = id_ret;
+			m_send_buffer[send_index++] = packet_id;
+			for (int i = 0;i < n;i++) {
+				m_send_buffer[send_index++] = ids[i];
+			}
+			commands_send_packet(m_send_buffer, send_index);
+		} break;
+
+		case CMD_GET_VINKEL: {
+			// Bara läsning, för statusskärmen: ingen timeout_reset() (annars skulle
+			// kortet aldrig stoppa om förarens länk dör) och ingen ny send_func
+			// (Car_Client skickar allt kortet säger vidare till alla).
+			// (Nummer 150; 143 är nödstoppets statuspaket från Car_Client.)
+			// Svar: [id][cmd][status u8: 0 ingen givare, 1 OK, 2 fel][kalibrerad u8]
+			//       [mV u16][grader*100 i32]
+			//       30.18: [autocentrering u8: 0 ingen givare, 1 på, 2 av, 3 av p.g.a. fel]
+			int32_t send_index = 0;
+			m_send_buffer[send_index++] = id_ret;
+			m_send_buffer[send_index++] = CMD_GET_VINKEL;
+#ifdef ANGLE_SENSOR
+			m_send_buffer[send_index++] = adconv_angle_sensor_ok() ? 1 : 2;
+			m_send_buffer[send_index++] = adconv_angle_calibrated() ? 1 : 0;
+			buffer_append_uint16(m_send_buffer, last_sensorvalue, &send_index);
+			buffer_append_int32(m_send_buffer, (int32_t)(frontangle * 100.0), &send_index);
+			m_send_buffer[send_index++] = (uint8_t)styrpos_status();
+#else
+			m_send_buffer[send_index++] = 0;
+			m_send_buffer[send_index++] = 0;
+			buffer_append_uint16(m_send_buffer, 0, &send_index);
+			buffer_append_int32(m_send_buffer, 0, &send_index);
+			m_send_buffer[send_index++] = 0;
+#endif
+			commands_send_packet(m_send_buffer, send_index);
+		} break;
+
+		case CMD_SET_AUTOCENTRERING: {
+			// [på u8] -> sparas i styrkortet. Svar som CMD_GET_VINKEL (nya läget).
+			// Ingen timeout_reset(): det är inget körkommando.
+			commands_set_send_func(func);
+			if (len < 1) {
+				break;
+			}
+			styrpos_set_autocentrering(data[0] != 0);
+			int32_t send_index = 0;
+			m_send_buffer[send_index++] = id_ret;
+			m_send_buffer[send_index++] = CMD_GET_VINKEL;
+#ifdef ANGLE_SENSOR
+			m_send_buffer[send_index++] = adconv_angle_sensor_ok() ? 1 : 2;
+			m_send_buffer[send_index++] = adconv_angle_calibrated() ? 1 : 0;
+			buffer_append_uint16(m_send_buffer, last_sensorvalue, &send_index);
+			buffer_append_int32(m_send_buffer, (int32_t)(frontangle * 100.0), &send_index);
+			m_send_buffer[send_index++] = (uint8_t)styrpos_status();
+#else
+			m_send_buffer[send_index++] = 0;
+			m_send_buffer[send_index++] = 0;
+			buffer_append_uint16(m_send_buffer, 0, &send_index);
+			buffer_append_int32(m_send_buffer, 0, &send_index);
+			m_send_buffer[send_index++] = 0;
+#endif
+			commands_send_packet(m_send_buffer, send_index);
+		} break;
+
+		case CMD_TEST_SPIN_VESC: {
+			// [vesc_id u8] -> svar [id][cmd][vesc_id][1 = startat, 0 = upptaget]
+			commands_set_send_func(func);
+			if (len < 1) {
+				break;
+			}
+			uint8_t vesc = data[0];
+			bool started = motor_test_spin(vesc);
+			commands_printf("Provsnurr VESC %d: %s", vesc, started ? "startat" : "upptaget");
+
+			int32_t send_index = 0;
+			m_send_buffer[send_index++] = id_ret;
+			m_send_buffer[send_index++] = packet_id;
+			m_send_buffer[send_index++] = vesc;
+			m_send_buffer[send_index++] = started ? 1 : 0;
+			commands_send_packet(m_send_buffer, send_index);
+		} break;
+
 		case CMD_VESC_FWD:
 			timeout_reset();
 			commands_set_send_func(func);
@@ -1173,6 +1288,19 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			// steering *= autopilot_get_steering_scale();
 
 			autopilot_set_active(false);
+#ifdef IS_ROBANT
+			// RControlStation skickar detta gamla kommando (tangentbordsstyrningen)
+			// parallellt med CMD_RC_CONTROL_ADV när dosan är aktiverad. Det styr
+			// styr-VESC:en direkt, förbi vändning, självcentrering och differential
+			// (mk1 2026-10-15: bakbenen vek sig under bandvagnsvändning i RCS).
+			// Kommer ADV-kommandon används bara de; utan dosa (bara tangentbord)
+			// fungerar det gamla som förut.
+			// 30 s: RCS skickar ADV bara när spaken rör sig (och upprepar värden ≠ 0),
+			// så efter att spaken släppts kommer inga ADV på ett tag.
+			if (m_adv_senast != 0 && chVTTimeElapsedSinceX(m_adv_senast) < S2ST(30)) {
+				break;
+			}
+#endif
 			debugvalue=mode;
 			motor_set_mode(mode);
 			if (!main_config.vehicle.disable_motor) {
@@ -1194,6 +1322,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			break;
 		case CMD_RC_CONTROL_ADV: {
 			timeout_reset();
+			m_adv_senast = chVTGetSystemTimeX();
 			uint32_t activity;
 			float magnitude;
 			int32_t ind = 0;
@@ -1213,6 +1342,11 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			magnitude = (float)raw_value / 1e4;  // Manual conversion for debug
 	//		commands_printf("Magnitude: %f", magnitude);
 
+			// RobAnt: drivsidor var för sig och vändning på stället
+			if (motor_rc_adv((uint8_t)activity, magnitude)) {
+				break;
+			}
+
 			// Get actuators with the specified activity
 			int actuator_count = 0;
 			ACTUATOR* actuators = motor_get_actuators_by_activity(activity, &actuator_count);
@@ -1229,6 +1363,11 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 						              i, actuators[i].motorid, actuators[i].mode, actuators[i].type, actuators[i].activity);
 						commands_printf("Calling VESC with magnitude: %f", magnitude);*/
 						
+						// Styrningen med vinkelgivare: spakens utslag = hjulens vinkel
+						// (styr_position.c). Annars som förut: värdet direkt till VESC:en.
+						if (activity == STYRPOS_ACTIVITY && styrpos_command(actuators[i].motorid, magnitude)) {
+							continue;
+						}
 						// Use the actuator's mode and VESC ID to control it
 						motor_set_vesc_value(actuators[i].motorid, magnitude, actuators[i].mode);
 					} else

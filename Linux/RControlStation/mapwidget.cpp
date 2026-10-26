@@ -1916,6 +1916,68 @@ void MapWidget::zoomInOnRoute(int id, double margins, double wWidth, double wHei
     }
 }
 
+void MapWidget::zoomInOnFieldBorders()
+{
+    qDebug() << "zoomInOnFieldBorders: mFields =";
+    if (mFields) {
+        qDebug() << "  mFields size:" << mFields->size();
+    } else {
+        qDebug() << "  mFields is NULL";
+    }
+    
+    if (mFields && mFields->size() > 0) {
+        std::array<double, 4> extremes = findExtremeValuesFieldBorders();
+        qDebug() << "  extremes: minX=" << extremes[0] << "minY=" << extremes[1] << "maxX=" << extremes[2] << "maxY=" << extremes[3];
+        double fieldareawidth_m = extremes[2] - extremes[0];  // maxX - minX
+        double fieldareaheight_m = extremes[3] - extremes[1]; // maxY - minY
+        double offsetx_m = (extremes[0] + extremes[2]) / 2.0;  // center X
+        double offsety_m = (extremes[1] + extremes[3]) / 2.0;  // center Y
+        double scalex = 0.5 / fieldareawidth_m;
+        double scaley = 0.5 / fieldareaheight_m;
+        
+        qDebug() << "  width:" << fieldareawidth_m << "height:" << fieldareaheight_m;
+        qDebug() << "  offsetx_m:" << offsetx_m << "offsety_m:" << offsety_m << "scalex:" << scalex << "scaley:" << scaley;
+        
+        moveView(offsetx_m, offsety_m);
+        setScaleFactor(std::min(scalex, scaley));
+        update();
+        qDebug() << "  zoomInOnFieldBorders: DONE";
+    } else {
+        qDebug() << "  zoomInOnFieldBorders: No fields to zoom on";
+    }
+}
+
+void MapWidget::zoomInOnPathBorders()
+{
+    qDebug() << "zoomInOnPathBorders: mPaths =";
+    if (mPaths) {
+        qDebug() << "  mPaths size:" << mPaths->size();
+    } else {
+        qDebug() << "  mPaths is NULL";
+    }
+    
+    if (mPaths && mPaths->size() > 0) {
+        std::array<double, 4> extremes = findExtremeValuesPathBorders();
+        qDebug() << "  extremes: minX=" << extremes[0] << "minY=" << extremes[1] << "maxX=" << extremes[2] << "maxY=" << extremes[3];
+        double fieldareawidth_m = extremes[2] - extremes[0];  // maxX - minX
+        double fieldareaheight_m = extremes[3] - extremes[1]; // maxY - minY
+        double offsetx_m = (extremes[0] + extremes[2]) / 2.0;  // center X
+        double offsety_m = (extremes[1] + extremes[3]) / 2.0;  // center Y
+        double scalex = 0.5 / fieldareawidth_m;
+        double scaley = 0.5 / fieldareaheight_m;
+        
+        qDebug() << "  width:" << fieldareawidth_m << "height:" << fieldareaheight_m;
+        qDebug() << "  offsetx_m:" << offsetx_m << "offsety_m:" << offsety_m << "scalex:" << scalex << "scaley:" << scaley;
+        
+        moveView(offsetx_m, offsety_m);
+        setScaleFactor(std::min(scalex, scaley));
+        update();
+        qDebug() << "  zoomInOnPathBorders: DONE";
+    } else {
+        qDebug() << "  zoomInOnPathBorders: No paths to zoom on";
+    }
+}
+
 double MapWidget::getOsmRes() const
 {
     return mOsmRes;
@@ -1930,6 +1992,77 @@ void MapWidget::setOsmRes(double osmRes)
 bool MapWidget::getDrawOpenStreetmap() const
 {
     return mDrawOpenStreetmap;
+}
+
+void MapWidget::setOsmOffset(double east, double north)
+{
+    mOsmOffsetE = east;
+    mOsmOffsetN = north;
+    update();
+}
+
+/**
+ * RobAnt ovanifrån i verklig skala (mm), x framåt, y vänster, origo = framaxelns mitt
+ * (positionen autopiloten styr efter). Mått mk1 2026-10-16: längd 1,9 m, bredd 1,35 m,
+ * axelavstånd 1,42 m, hjulinfästningar 1,24 m isär, hjul Ø 0,46 m. Kroppen går tvärs
+ * mellan sidorna (nödstopp och GPS-antenn på vänster sida), fyra ben ut till hjulen.
+ * Bakhjulen styr.
+ */
+void MapWidget::paintRobAnt(QPainter &painter, const QColor &hull, const QColor &wheels, const QColor &front)
+{
+    const double axel = 1420.0;			// axelavstånd
+    const double hjulY = 565.0;			// hjulmitt i sidled (bredd 1350 - hjulbredd 220)
+    const double hjulL = 460.0, hjulB = 220.0;
+    const double mittX = -axel / 2.0;
+    const double faste = 620.0;			// hjulinfästningarna 1240 isär
+    painter.save();
+    QPen penna(QColor(40, 40, 40));
+    penna.setWidthF(15.0);
+    penna.setCosmetic(false);
+    painter.setPen(penna);
+
+    // Ben: från kroppen ut till hjulen, på båda sidor
+    painter.setBrush(QColor(170, 170, 160));
+    for (double sida : {1.0, -1.0}) {
+        painter.drawRect(QRectF(mittX - axel / 2.0, sida * (faste - 70.0) - 45.0, axel, 90.0));
+    }
+    // Hjul
+    painter.setBrush(wheels);
+    for (double hx : {0.0, -axel}) {
+        for (double sida : {1.0, -1.0}) {
+            painter.drawRoundedRect(QRectF(hx - hjulL / 2.0, sida * hjulY - hjulB / 2.0, hjulL, hjulB), 60, 60);
+        }
+    }
+    // Ett heltäckande lock mellan hjulen, som på mk2 (syns bättre på kartan än
+    // mk1:s ram med två lådor)
+    const double lockX = axel - hjulL - 80.0;	// fri längd mellan hjulen, lite marginal
+    const double lockY = 2 * (hjulY - hjulB / 2.0) - 60.0;
+    painter.setBrush(hull);
+    painter.drawRoundedRect(QRectF(mittX - lockX / 2.0, -lockY / 2.0, lockX, lockY), 60, 60);
+    // Nödstopp (gult med röd knapp) längst ut på vänster sida
+    painter.setBrush(QColor(240, 200, 0));
+    painter.drawRect(QRectF(mittX - 110.0, faste - 40.0, 220.0, 120.0));
+    painter.setBrush(QColor(200, 0, 0));
+    painter.drawEllipse(QPointF(mittX, faste + 20.0), 40.0, 40.0);
+    // Fram: grön pil på framaxeln
+    painter.setBrush(front);
+    QPolygonF pil;
+    pil << QPointF(150.0, 0.0) << QPointF(-60.0, 110.0) << QPointF(-60.0, -110.0);
+    painter.drawPolygon(pil);
+    painter.restore();
+}
+
+void MapWidget::setCarRefAtFront(int car, bool front)
+{
+    if (front == mCarRefAtFront.contains(car)) {
+        return;
+    }
+    if (front) {
+        mCarRefAtFront.insert(car);
+    } else {
+        mCarRefAtFront.remove(car);
+    }
+    update();
 }
 
 void MapWidget::setDrawOpenStreetmap(bool drawOpenStreetmap)
@@ -2467,6 +2600,9 @@ void MapWidget::paintCar(CarInfo &carInfo,QPainter &painter,QPen &pen, QTransfor
     painter.save();
     painter.translate(x, y);
     painter.rotate(-angle);
+    if (mCarRefAtFront.contains(carInfo.getId())) {
+        paintRobAnt(painter, col_hull, col_wheels, col_bumper);
+    } else {
     // Wheels
     painter.drawRoundedRect(-car_len / 12.0,-(car_w / 2), car_len / 6.0, car_w, car_corner / 3, car_corner / 3);
     painter.drawRoundedRect(car_len - car_len / 2.5,-(car_w / 2), car_len / 6.0, car_w, car_corner / 3, car_corner / 3);
@@ -2476,16 +2612,22 @@ void MapWidget::paintCar(CarInfo &carInfo,QPainter &painter,QPen &pen, QTransfor
     // Hull
     painter.setBrush(col_hull);
     painter.drawRoundedRect(-car_len / 6.0, -((car_w - car_len / 20.0) / 2.0), car_len - (car_len / 20.0), car_w - car_len / 20.0, car_corner, car_corner);
+    }
     painter.restore();
+
+    // RobAnt ritas i verklig skala: prickarna i verklig storlek också (annars ~1 m)
+    const bool robant = mCarRefAtFront.contains(carInfo.getId());
+    const double r_center = robant ? 40.0 : car_w / 15.0;
+    const double r_gps = robant ? 90.0 : car_w / 3.0;
 
     // Center
     painter.setBrush(col_center);
-    painter.drawEllipse(QPointF(x, y), car_w / 15.0, car_w / 15.0);
+    painter.drawEllipse(QPointF(x, y), r_center, r_center);
 
     // GPS Location
     painter.setBrush(col_gps);
     //        painter.drawEllipse(QPointF(x_gps, y_gps), car_w / 15.0, car_w / 15.0);
-    painter.drawEllipse(QPointF(x_gps, y_gps), car_w / 3.0, car_w / 3.0);
+    painter.drawEllipse(QPointF(x_gps, y_gps), r_gps, r_gps);
 
     // Autopilot state
     LocPoint ap_goal = carInfo.getApGoal();
@@ -2668,8 +2810,8 @@ void MapWidget::paintTiles(QPainter &painter,const double cx, const double cy, c
         for (int i = 0;i < 40;i++) {
             int xt_i = xt + i - t_ofs_x;
             int yt_i = yt + j - t_ofs_y;
-            double ts_x = xyz[0] + w * i - (double)t_ofs_x * w;
-            double ts_y = -xyz[1] + w * j - (double)t_ofs_y * w;
+            double ts_x = xyz[0] + w * i - (double)t_ofs_x * w + mOsmOffsetE;
+            double ts_y = -xyz[1] + w * j - (double)t_ofs_y * w - mOsmOffsetN;
 
             // We are outside the view
             if (ts_x > (cx + view_w / 2.0)) {
@@ -2982,13 +3124,35 @@ std::array<double, 4> MapWidget::findExtremeValuesFieldBorders()
     }*/
 
     for (const MapRoute& field : mFields->mCollection) {
-        qDebug() << "Field mRoute size:" << field.mRoute.size();
-        for (const LocPoint& point : field.mRoute) {
-            qDebug() << "LocPoint: mX=" << point.getX() << ", mY=" << point.getY() << ", mInfo=" << point.getInfo();
-        }
-        qDebug() << "Before appending, size: "  << field.mRoute.size();
         allpoints.append(field.mRoute.begin(), field.mRoute.end());
-        qDebug() << "After appending, size: "  << field.mRoute.size();
+    }
+
+    for (const LocPoint& point : allpoints)
+    {
+        double x=point.getX();
+        double y=point.getY();
+
+        if (x<extremes[0]) extremes[0]=x;
+        if (x>extremes[2]) extremes[2]=x;
+        if (y<extremes[1]) extremes[1]=y;
+        if (y>extremes[3]) extremes[3]=y;
+
+    }
+    return extremes;
+}
+
+std::array<double, 4> MapWidget::findExtremeValuesPathBorders()
+{
+    std::array<double, 4> extremes;
+    extremes[0]=9999999;
+    extremes[1]=9999999;
+    extremes[2]=-9999999;
+    extremes[3]=-9999999;
+
+    QList<LocPoint> allpoints;
+
+    for (const MapRoute& path : mPaths->mCollection) {
+        allpoints.append(path.mRoute.begin(), path.mRoute.end());
     }
 
     for (const LocPoint& point : allpoints)

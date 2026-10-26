@@ -10,6 +10,7 @@ BUILD_DIR="${SCRIPT_DIR}/build/cmake_linux"
 BUILD_TYPE="Release"
 CLEAN=false
 PARALLEL_JOBS=$(nproc)
+SKIP_DEPS=false
 
 # Parse arguments
 for arg in "$@"; do
@@ -23,9 +24,12 @@ for arg in "$@"; do
         clean)
             CLEAN=true
             ;;
+        skip-deps|--skip-deps)
+            SKIP_DEPS=true
+            ;;
         *)
             echo "Unknown argument: $arg"
-            echo "Usage: $0 [debug|release] [clean]"
+            echo "Usage: $0 [debug|release] [clean] [skip-deps]"
             exit 1
             ;;
     esac
@@ -87,7 +91,11 @@ check_dependencies() {
         fi
     fi
 }
-check_dependencies
+
+# Check dependencies unless skipped
+if [ "$SKIP_DEPS" = false ]; then
+    check_dependencies
+fi
 
 # Clean if requested
 if [ "$CLEAN" = true ]; then
@@ -102,6 +110,14 @@ mkdir -p "$BUILD_DIR"
 # Configure with CMake
 cd "$BUILD_DIR"
 echo "Configuring with CMake..."
+
+# Use ccache if available for faster recompilation
+if command -v ccache >/dev/null 2>&1; then
+    echo "Using ccache for faster builds"
+    export CC="ccache gcc"
+    export CXX="ccache g++"
+fi
+
 cmake \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_TOOLCHAIN_FILE="${SCRIPT_DIR}/cmake/Toolchains/Linux-GCC.cmake" \

@@ -20,6 +20,7 @@
 
 #include <QMainWindow>
 #include <QElapsedTimer>
+#include <QPushButton>
 #include <QLabel>
 #include <QLineEdit>
 #include <QtWidgets>
@@ -162,6 +163,12 @@ private slots:
     void onSelectedFieldGeneral(QStandardItemModel *model, QStandardItemModel *modelPth, const QModelIndex& current, const QModelIndex& previous);
     void on_listLogFilesView_clicked(const QModelIndex& index);
     void onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item);
+    
+    // File Administration tab slots
+    void setupFileAdminTab();
+    void onFileAdminFarmSelected(int index);
+    void onFileAdminFieldSelected(int index);
+    void onFileAdminActionButtonClicked();
 
 
     void handleAddFieldButton();
@@ -184,6 +191,8 @@ private slots:
     void parseAllFarmsXmlForLog(const QByteArray &xmlData);
     void fetchFieldsForLogFarm(int farmId);
     void parseAllFieldsXmlForLog(const QByteArray &xmlData);
+    void fetchFieldsForFileAdminFarm(int farmId);
+    void parseFieldsForFileAdminFarmXml(const QByteArray &xmlData);
     void fetchPathsForLogField(int fieldId);
     void parseAllPathsXmlForLog(const QByteArray &xmlData);
     void fetchLogsForPath(int pathId);
@@ -367,6 +376,15 @@ private:
 
     Ui::MainWindow *ui;
     QLineEdit *mServerEdit = nullptr;
+    QString mVehicleMachine;        // maskinen vars batteriinställning gäller (adress)
+    // Dosan: av vid start, slås på med knappen "Aktivera dosa" (se activateGamepad).
+    QPushButton *mGamepadButton = nullptr;
+    QElapsedTimer mGamepadActivity;  // senaste spak-/knapprörelse medan dosan är aktiv
+    void activateGamepad();
+    void lockGamepad(const QString &why);
+    void updateGamepadButton();
+    void openVehicleSettings();
+    void calibrateSteeringAngle();
     bool mConnectingSelected = false; // Guard flag to prevent double connection
     QTimer *mTimer;
     QTimer *mHeartbeatTimer; // periodic heartbeat to vehicles for safety
@@ -441,11 +459,19 @@ private:
     bool mAutoEnuRefPending = false;
     void applyAutoEnuRef(double lat, double lon, double height);
     void saveMapPosition(double lat, double lon);
+    void adjustMapOffset();
+    bool isRobAnt(const QString &ip) const;
     QElapsedTimer mGgaAge;                  // Tid sedan senaste GGA från RTK-strömmen
     QElapsedTimer mStateAge;                // Tid sedan senaste statuspaket från bilen
     void updateStatusBox();
     VehicleData *mVehicle = nullptr;       // Fordonsdata i statusrutan + körlogg
     QString mConnectedIp;                   // IP till bilen vi senast anslöt till
+    // Bil-ID automatiskt: vid anslutning frågas styrkortet på ID_ALL vilket ID
+    // det har, och bilfliken byts till det om maskinlistans ID inte stämmer.
+    bool mAutoIdPending = false;
+    int mAutoIdTries = 0;
+    QTimer *mAutoIdTimer = nullptr;
+    void applyAutoId(quint8 id);
     bool mNmeaDrawTrace = true;             // rita GPS-positionerna som spår (inte vid automatisk anslutning)
     QNetworkAccessManager *mRouterNet = nullptr; // Egen hanterare: mNetworkManager har globala finished-kopplingar
     QString mRouterLine;                    // Färdig HTML-rad för 4G/5G-mottagningen
@@ -454,12 +480,28 @@ private:
     QMap<int, float> mLastActionValues; // Senast skickade värde per action (≠ 0), skickas om av mRcResendTimer
     QTimer *mRcResendTimer = nullptr;
     void rcResendTick();
+
+    // Nödstoppet från Car_Client (paket 143): -1 = okänt/inget, 0 ok, 1 intryckt,
+    // 2 spärrad (utdragen, väntar på Stopp), 3 fel. Visas på Stopp-knappen.
+    int mNodstoppLage = -1;
+    QElapsedTimer mNodstoppSenast;
+    QIcon mStopIcon;
+    void nodstoppVisa(int lage);
+    // Knappen Autocentrering (firmware 30.18): läget från CMD_GET_VINKEL (150),
+    // -1 okänt/inget svar, 0 ingen givare, 1 på, 2 av, 3 av p.g.a. fel, 4 för gammal firmware.
+    QPushButton *mAutoCenterButton = nullptr;
+    int mAutoCenterLage = -1;
+    QElapsedTimer mAutoCenterSenast;
+    void autoCenterVisa(int lage);
     bool gamepadAttached();
 
     // Armar (L1/L2 fram, R1/R2 bak). Skickas två vägar, varje maskin använder den
     // den förstår: CMD_HYDRAULIC_MOVE (hydraulik via firmware, t.ex. MacTrac) och
     // kontroll 1/3 via dosabindningarna (t.ex. VESC-armar på RobAnt).
     bool mArmL1 = false, mArmL2 = false, mArmR1 = false, mArmR2 = false;
+    // RobAnt: håll in O (cirkel) = vänd på stället, styrspaken ger håll och fart
+    bool mPivotHeld = false;
+    void setPivotHeld(bool held);
     int mArmFrontMove = 0, mArmRearMove = 0;   // senast skickat, i firmwarens värden
     QElapsedTimer mArmResendAge;
     void updateArms();

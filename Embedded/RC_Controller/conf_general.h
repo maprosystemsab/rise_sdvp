@@ -33,7 +33,7 @@
 
 // Firmware version
 #define FW_VERSION_MAJOR			30
-#define FW_VERSION_MINOR			3	// 30.3 (2026-09-30): som 30.2 + autopiloten sätter körriktningen. 30.2 (2026-09-29): Write-hängningen rättad, heartbeat i sekunder, stopp
+#define FW_VERSION_MINOR			23	// 30.23 (2026-10-19): RobAnt-hjulgivaren avstudsas (en nivå måste ligga still 3 ms); med 30.21-filtret kom störningar från styrmotorn ändå igenom som 11-21 km/h och bilen på kartan sprang 10 m före GPS-punkten. 30.22 (2026-10-16): RobAnt-autopiloten drar in stående sidofel mot linjen (integrerat sidofel, högst ca 6 grader); förut kunde den köra ca 1 m bredvid linjen. 30.21 (2026-10-16): RobAnt-hjulgivaren filtrerar bort störpulser (kortare än 15 ms, ≈ 27 km/h) och har digitalt ingångsfilter; i svängar visade den 188 km/h och bilen på kartan for iväg. 30.20 (2026-10-16): RobAnt med RTK rättar positionen en tredjedel av felet mot GPS per GPS-position och kursen mot GPS-färdriktningen efter minst 0,3 m (bilen på kartan sprang ifrån GPS-punkten). 30.19 (2026-10-16): kursen tappas inte vid backning (hastighetsgivaren får körriktningen från gasrampen, GPS-kursrättningen vänder färdriktningen vid backning, vändning på stället räknas inte som körd sträcka). 30.18 (2026-10-16): knappen Autocentrering (CMD_SET_AUTOCENTRERING 151, sparas i styrkortet); givarfel (svarar inte/orimlig vinkel) slår av autocentreringen, CMD_GET_VINKEL har autocentreringens läge sist. 30.17 (2026-10-15): vinkelstyrningen driver styrmotorn med 0,8 (som manuell styrning), förut 0,6. 30.16 (2026-10-15): RCS Write kan inte radera vinkelgivarens kalibrering. 30.15 (2026-10-15): positionsberäkningen använder vinkelgivaren (kursen snurrade, autopiloten tappade bort sig). 30.14 (2026-10-15): gasramp på RobAnts drivsidor mot ABS_OVER_CURRENT (diff ramp); autopiloten kör RobAnt med duty + hastighetsgivare (förut RPM, gav ingen gas). 30.13 (2026-10-15): RobAnt ignorerar RCS gamla CMD_RC_CONTROL när ADV-kommandon kommer (bakbenen vek sig under vändning). 30.12 (2026-10-15): CMD_GET_VINKEL flyttat till 150 (143 krockade med nödstoppets statuspaket). 30.11 (2026-10-15): CMD_GET_VINKEL (143) för statusskärmens styrvinkelruta. 30.10 (2026-10-15): styrningen ökar kraften stegvis om hjulen fastnar nära rakt fram. 30.9 (2026-10-15): autopiloten styr RobAnts bakben med vinkelgivaren och får differentialen. 30.8 (2026-10-15): elektronisk differential (innersidan saktar in efter styrvinkeln), terminal diff. 30.7 (2026-10-15): styrningen går tillbaka med full fart och saktar in först sista 4,5°. 30.6 (2026-10-15): bandvagnsvändning (aktivitet 20/21/22) med bakbenen centrerade före vändningen. 30.5 (2026-10-15): självcentrerande styrning med vinkelgivaren (styr_position.c), hjuldiameter RobAnt 0,46 m. 30.4 (2026-10-13): CMD_PING_VESC_CAN (141) pingar VESC på CAN som VESC Tool, CMD_TEST_SPIN_VESC (142) provsnurr, RobAnt läser batteriet från VESC. 30.3 (2026-09-30): som 30.2 + autopiloten sätter körriktningen. 30.2 (2026-09-29): Write-hängningen rättad, heartbeat i sekunder, stopp
 
 // IO BOARD
 // #define IO_BOARD
@@ -61,6 +61,7 @@
 // inte påverkas.
 #ifdef IS_ROBANT
 #define IS_DRANGEN
+#define ROBANT_VIN_FROM_VESC	// batteriet läses från VESC, styrkortet kan matas med 12 V
 #define VESC_LEFT 28
 #define VESC_RIGHT 36
 #define VESC_STEERING 76
@@ -68,8 +69,15 @@
 #define WHEEL_SENSOR                1
 // Hastighetsgivare ZF GS1001 på TX-kontakten (PA2): pulser från en stålskiva med hål.
 // PA2 får intern pull-up (givaren har öppen kollektor).
-#define WHEELSPEED_DIAM             0.30	// m, hjulets diameter — TODO: mät RobAnt
-#define WHEELSPEED_CNTS_PER_REV     13.0	// 13 hål i skivan (Ø170 mm), förutsatt att den sitter på hjulaxeln
+#define WHEELSPEED_DIAM             0.46	// m, rullande diameter: ytterdiameter ca 450 mm, omkrets ca 1500 mm (mk1, 2026-10-14); finjustera med en uppmätt sträcka
+#define WHEELSPEED_CNTS_PER_REV     13.0	// 13 hål Ø20 mm på Ø140 mm hålbild, skiva Ø169 mm på hjulaxeln
+// Kortare tid mellan pulser är störningar (≈ 27 km/h): när man svängde visade mk1
+// 188 km/h och bilen på kartan for iväg 50 m (2026-10-16).
+#define WHEELSPEED_MIN_PERIOD_S     0.015
+// Avstudsning: en nivå på givaren måste ligga still 3 ms för att räknas. Störspikarna
+// från styrmotorn kom med mer än 15 ms mellanrum (11-21 km/h i svängar, 2026-10-19).
+// Hål och plåt mellan hålen varar minst ca 10 ms i 15 km/h.
+#define WHEELSPEED_MIN_LEVEL_S      0.003
 #ifndef IS_ROVMCU	// MP101: hjulpulserna på PA3 med extern pull-up (R127), se pwm_esc.c
 #define WHEELSPEED_PULLUP
 // Vinkelgivare DIS QR30N-360 (0–5 V för 0–360°) på RX-kontakten (PA3) via
@@ -77,10 +85,19 @@
 // i stället för servoutgång. Vinkeln = (U - CENTER) * DEG_PER_MV.
 #define ANGLE_SENSOR_PA3
 #define ANGLE_SENSOR_DIVIDER        ((12.0 + 22.0) / 22.0)
+#else
+// MP101: samma vinkelgivare på J30 stift 2 (analog in 1, PA4), jord på stift 5.
+// Kortets egen spänningsdelare R132 = 20k, R141 = 10k.
+#define ANGLE_SENSOR_J30
+#define ANGLE_SENSOR_DIVIDER        ((20.0 + 10.0) / 10.0)
+#endif	// IS_ROVMCU
+// Vinkelgivaren oavsett kort: funktionerna (självcentrering, vändning, autopilotens
+// bakbensstyrning) och kalibreringen. Bara själva ingången skiljer mellan korten.
+#define ANGLE_SENSOR
 #define ANGLE_SENSOR_CENTER_MV      2500.0	// givarens spänning rakt fram — TODO: kalibrera
 #define ANGLE_SENSOR_DEG_PER_MV     0.072	// 360° / 5000 mV; byt tecken om vinkeln går åt fel håll
 #define ANGLE_SENSOR_MIN_MV         100.0	// under detta: magneten saknas/givarfel
-#endif	// IS_ROVMCU: vinkelgivaren på PA3 finns bara på det gamla kortet
+#define ANGLE_SENSOR_MAX_DEG        30.0	// styrvinkel vid fullt utslag (vinkel_hoger/vinkel_vanster)
 #endif
 
 #ifdef DRANGEN_GAMMAL
@@ -128,7 +145,9 @@
 #define VOLTAGEFRACTION 1
 #define SERVO_VESC_S1				180.7 // Left
 #define SERVO_VESC_S2				237.7 // Right
+#ifndef ROBANT_VIN_FROM_VESC
 #define USE_ADCONV_FOR_VIN
+#endif
 #define SERVO_VESC_HYDRAULIC
 #define HYDRAULIC_HAS_SPEED_SENSOR
 #define SERVO_VESC_INVERTED			0
@@ -313,5 +332,7 @@ void conf_general_get_default_main_config(MAIN_CONFIG *conf);
 void conf_general_read_main_conf(MAIN_CONFIG *conf);
 void conf_general_sanitize_main_config(MAIN_CONFIG *conf);
 bool conf_general_store_main_config(MAIN_CONFIG *conf);
+bool conf_general_autocentrering(void);
+bool conf_general_store_autocentrering(bool on);
 
 #endif /* CONF_GENERAL_H_ */
