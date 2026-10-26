@@ -18,7 +18,7 @@
 # Utan skrivbord (MP101/CM5 med Debian Lite):  bash installera.sh --kiosk [--dsi 0|1] [--rotera 180]
 #   I stället för steg 4: Waveshare 4,3" DSI i config.txt (skärmen härmar Raspberrys
 #   7"-skärm), cage från apt och tjänsten statusskarm-kiosk som kör appen i helskärm.
-#   --dsi: skärmporten, 0 som standard (MP101: J1 = DPHY0 + SCL0/SDA0 = I2C-buss 0).
+#   --dsi: skärmporten, 0 som standard (MP101: J1 = DPHY0 + SCL0/SDA0 = GPIO38/39 = i2c_csi_dsi0, buss 10).
 #   Ladda bara porten som skärmen sitter på: en port utan skärm kan visa en spökskärm.
 #   Tjänsten startar BARA när skärmens pekkrets (ft5x06) svarar; utan skärm hoppas den
 #   över och kortet fungerar som vanligt. --rotera 90/180/270 vrider bild och touch.

@@ -5,7 +5,7 @@ Kort beskrivning. Den här texten blir dokumentationen för ändringen.
 - [ ] MacTrac / MacBot (`make mactrac`)
 - [ ] RobAnt (`make robant`)
 - [ ] Drängen (`make drangen`)
-- [ ] ROV_MCU (`make rovmcu`)
+- [ ] ROV_MCU / MP101 (`make robant BOARD=mp101`)
 - [ ] Bara datorn (RControlStation, verktyg, skript)
 
 ## Hur är det provat?
