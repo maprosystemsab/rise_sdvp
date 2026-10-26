@@ -1956,7 +1956,10 @@ void MainWindow::onFileAdminFieldSelected(int index)
                 mMapWidgetFileAdmin->clearAllPaths();
                 
                 // Fetch the field from server
-                QUrl url(getServerBaseUrl() + QString("/field/%1").arg(fieldId));
+                QUrl url(getServerBaseUrl() + "/field");
+                QUrlQuery query;
+                query.addQueryItem("id", fieldId);
+                url.setQuery(query);
                 qDebug() << "  Fetching field from URL:" << url.toString();
                 
                 QNetworkRequest request(url);
