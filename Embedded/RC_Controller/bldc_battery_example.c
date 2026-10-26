@@ -1,11 +1,12 @@
 /*
- * Example: wire up battery_level in RC_Controller.
+ * Example: wire up battery_level in RC_Controller (not compiled automatically through MAKEFILE).
  *
  * No polling: another variant already counts Ah/Wh during operation,
  * so the battery level only needs to be fetched at startup (after the
  * version handshake) and on demand. Register the callback once at init,
  * call battery_fetch_level() when needed, and read the value with the
  * battery_get_* functions (-1 until the first reply arrives).
+ * 
  */
 
 #include "ch.h"
