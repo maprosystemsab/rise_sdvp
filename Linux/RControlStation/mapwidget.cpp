@@ -1947,6 +1947,37 @@ void MapWidget::zoomInOnFieldBorders()
     }
 }
 
+void MapWidget::zoomInOnPathBorders()
+{
+    qDebug() << "zoomInOnPathBorders: mPaths =";
+    if (mPaths) {
+        qDebug() << "  mPaths size:" << mPaths->size();
+    } else {
+        qDebug() << "  mPaths is NULL";
+    }
+    
+    if (mPaths && mPaths->size() > 0) {
+        std::array<double, 4> extremes = findExtremeValuesPathBorders();
+        qDebug() << "  extremes: minX=" << extremes[0] << "minY=" << extremes[1] << "maxX=" << extremes[2] << "maxY=" << extremes[3];
+        double fieldareawidth_m = extremes[2] - extremes[0];  // maxX - minX
+        double fieldareaheight_m = extremes[3] - extremes[1]; // maxY - minY
+        double offsetx_m = (extremes[0] + extremes[2]) / 2.0;  // center X
+        double offsety_m = (extremes[1] + extremes[3]) / 2.0;  // center Y
+        double scalex = 0.5 / fieldareawidth_m;
+        double scaley = 0.5 / fieldareaheight_m;
+        
+        qDebug() << "  width:" << fieldareawidth_m << "height:" << fieldareaheight_m;
+        qDebug() << "  offsetx_m:" << offsetx_m << "offsety_m:" << offsety_m << "scalex:" << scalex << "scaley:" << scaley;
+        
+        moveView(offsetx_m, offsety_m);
+        setScaleFactor(std::min(scalex, scaley));
+        update();
+        qDebug() << "  zoomInOnPathBorders: DONE";
+    } else {
+        qDebug() << "  zoomInOnPathBorders: No paths to zoom on";
+    }
+}
+
 double MapWidget::getOsmRes() const
 {
     return mOsmRes;
@@ -3094,6 +3125,34 @@ std::array<double, 4> MapWidget::findExtremeValuesFieldBorders()
 
     for (const MapRoute& field : mFields->mCollection) {
         allpoints.append(field.mRoute.begin(), field.mRoute.end());
+    }
+
+    for (const LocPoint& point : allpoints)
+    {
+        double x=point.getX();
+        double y=point.getY();
+
+        if (x<extremes[0]) extremes[0]=x;
+        if (x>extremes[2]) extremes[2]=x;
+        if (y<extremes[1]) extremes[1]=y;
+        if (y>extremes[3]) extremes[3]=y;
+
+    }
+    return extremes;
+}
+
+std::array<double, 4> MapWidget::findExtremeValuesPathBorders()
+{
+    std::array<double, 4> extremes;
+    extremes[0]=9999999;
+    extremes[1]=9999999;
+    extremes[2]=-9999999;
+    extremes[3]=-9999999;
+
+    QList<LocPoint> allpoints;
+
+    for (const MapRoute& path : mPaths->mCollection) {
+        allpoints.append(path.mRoute.begin(), path.mRoute.end());
     }
 
     for (const LocPoint& point : allpoints)

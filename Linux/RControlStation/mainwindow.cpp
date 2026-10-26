@@ -2323,11 +2323,11 @@ void MainWindow::onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item)
                     qDebug() << "  Field count:" << mMapWidgetFileAdmin->getFieldNum();
                     
                     // Center the view on the loaded data
-                    if (mMapWidgetFileAdmin->getFieldNum() > 0) {
-                        qDebug() << "  Calling zoomInOnFieldBorders from table click";
-                        mMapWidgetFileAdmin->zoomInOnFieldBorders();
+                    if (mMapWidgetFileAdmin->getPathNum() > 0) {
+                        qDebug() << "  Calling zoomInOnPathBorders from table click";
+                        mMapWidgetFileAdmin->zoomInOnPathBorders();
                     } else {
-                        qDebug() << "  No fields to zoom on";
+                        qDebug() << "  No paths to zoom on";
                     }
                 } else {
                     qDebug() << "Failed to load border file:" << filename << "XML error:" << xmlReader.errorString();

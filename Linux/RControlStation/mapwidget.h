@@ -162,6 +162,7 @@ public:
     void removeLastRoutePoint();
     void zoomInOnRoute(int id, double margins, double wWidth = -1, double wHeight = -1);
     void zoomInOnFieldBorders();
+    void zoomInOnPathBorders();
 
     int getOsmMaxZoomLevel() const;
     void setOsmMaxZoomLevel(int osmMaxZoomLevel);
@@ -220,6 +221,7 @@ public:
     void saveXMLCurrentRoute(QXmlStreamWriter* stream);
 
     std::array<double, 4> findExtremeValuesFieldBorders();
+    std::array<double, 4> findExtremeValuesPathBorders();
     void setLogStart(int iStart);
     void setLogEnd(int iEnd);
     int Elements();
