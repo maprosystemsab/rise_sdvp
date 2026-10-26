@@ -1947,6 +1947,67 @@ void MainWindow::onFileAdminFieldSelected(int index)
         
         // Clear the path name line edit
         ui->lineEditFileAdminPath->clear();
+        
+        // Load and display the field as a border
+        if (!fieldId.isEmpty()) {
+            int id = fieldId.toInt();
+            if (id > 0) {
+                mMapWidgetFileAdmin->clearAllFields();
+                mMapWidgetFileAdmin->clearAllPaths();
+                
+                // Fetch the field from server
+                QUrl url(getServerBaseUrl() + QString("/field/%1").arg(fieldId));
+                qDebug() << "  Fetching field from URL:" << url.toString();
+                
+                QNetworkRequest request(url);
+                request.setTransferTimeout(10000);
+                
+                QNetworkReply* reply = mNetworkManager->get(request);
+                if (reply) {
+                    showStatusInfo("Loading field border...", true);
+                    
+                    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+                        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                        qDebug() << "  HTTP Status Code:" << statusCode;
+                        
+                        if (reply->error() == QNetworkReply::NoError && statusCode == 200) {
+                            QByteArray xmlData = reply->readAll();
+                            qDebug() << "  XML data size:" << xmlData.size();
+                            
+                            if (!xmlData.isEmpty()) {
+                                QXmlStreamReader xmlReader(xmlData);
+                                bool success = mMapWidgetFileAdmin->loadXMLRoute(&xmlReader, true); // true = isBorder
+                                
+                                if (success) {
+                                    qDebug() << "  Successfully loaded field border";
+                                    showStatusInfo("Loaded field border", true);
+                                    
+                                    // Zoom in on the field border
+                                    if (mMapWidgetFileAdmin->getFieldNum() > 0) {
+                                        qDebug() << "  Calling zoomInOnFieldBorders";
+                                        mMapWidgetFileAdmin->zoomInOnFieldBorders();
+                                    }
+                                } else {
+                                    qDebug() << "  Failed to load field border: XML error:" << xmlReader.errorString();
+                                    showStatusInfo("Failed to load field border", false);
+                                }
+                            } else {
+                                qDebug() << "  Empty response for field";
+                                showStatusInfo("Empty response", false);
+                            }
+                        } else {
+                            QString errorMsg = reply->errorString();
+                            if (statusCode != 200 && statusCode > 0) {
+                                errorMsg = QString("HTTP %1").arg(statusCode);
+                            }
+                            qDebug() << "  Error fetching field:" << errorMsg;
+                            showStatusInfo("Error loading field: " + errorMsg, false);
+                        }
+                        reply->deleteLater();
+                    });
+                }
+            }
+        }
     } else {
         qDebug() << "  Invalid index";
     }
@@ -2283,8 +2344,7 @@ void MainWindow::onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item)
     QString filename = filenameItem->text();
     qDebug() << "File administration: Loading file:" << filename;
     
-    // Clear the map first
-    mMapWidgetFileAdmin->clearAllFields();
+    // Clear only paths, keep the field border
     mMapWidgetFileAdmin->clearAllPaths();
     mMapWidgetFileAdmin->update();
     
