@@ -3956,7 +3956,7 @@ void MainWindow::fetchFieldsForFileAdminFarm(int farmId)
     
     // Clear existing items in fields combo box
     ui->comboBoxFileAdminField->clear();
-    ui->comboBoxFileAdminPath->clear();
+    ui->lineEditFileAdminPath->clear();
     
     // Add loading indicator
     ui->comboBoxFileAdminField->addItem("Loading fields...");
@@ -4048,105 +4048,6 @@ void MainWindow::parseFieldsForFileAdminFarmXml(const QByteArray &xmlData)
     }
     
     qDebug() << "parseFieldsForFileAdminFarmXml: Fields loaded:" << ui->comboBoxFileAdminField->count();
-}
-
-void MainWindow::fetchPathsForFileAdminField(int fieldId)
-{
-    qDebug() << "fetchPathsForFileAdminField: Starting for fieldId:" << fieldId;
-    
-    // Clear existing items in paths combo box
-    ui->comboBoxFileAdminPath->clear();
-    
-    // Add loading indicator
-    ui->comboBoxFileAdminPath->addItem("Loading paths...");
-    
-    QUrl url(getServerBaseUrl() + "/all_paths");
-    QUrlQuery query;
-    query.addQueryItem("field", QString::number(fieldId));
-    url.setQuery(query);
-    
-    QNetworkRequest request(url);
-    request.setTransferTimeout(10000);
-    
-    QNetworkReply* reply = mNetworkManager->get(request);
-    if (!reply) {
-        qDebug() << "ERROR: reply is null in fetchPathsForFileAdminField!";
-        ui->comboBoxFileAdminPath->clear();
-        ui->comboBoxFileAdminPath->addItem("Error: Network request failed");
-        return;
-    }
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply, fieldId]() {
-        // Clear loading message
-        ui->comboBoxFileAdminPath->clear();
-        
-        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        qDebug() << "fetchPathsForFileAdminField HTTP Status Code:" << statusCode;
-        
-        if (reply->error() == QNetworkReply::NoError && statusCode == 200) {
-            QByteArray xmlData = reply->readAll();
-            qDebug() << "Received paths data for field" << fieldId << "(size:" << xmlData.size() << ")";
-            
-            if (!xmlData.isEmpty()) {
-                parsePathsForFileAdminFieldXml(xmlData);
-            } else {
-                qDebug() << "Empty response for paths";
-                ui->comboBoxFileAdminPath->addItem("No paths data");
-            }
-        } else {
-            qDebug() << "Error fetching paths for File Admin:" << reply->errorString();
-            ui->comboBoxFileAdminPath->addItem("Error loading paths");
-        }
-        reply->deleteLater();
-    });
-}
-
-void MainWindow::parsePathsForFileAdminFieldXml(const QByteArray &xmlData)
-{
-    qDebug() << "parsePathsForFileAdminFieldXml: Starting";
-    
-    QXmlStreamReader xmlReader(xmlData);
-    
-    while (!xmlReader.atEnd()) {
-        QXmlStreamReader::TokenType token = xmlReader.readNext();
-        
-        if (token == QXmlStreamReader::StartElement && xmlReader.name() == QLatin1String("path")) {
-            QString id, name;
-            
-            while (!xmlReader.atEnd()) {
-                token = xmlReader.readNext();
-                
-                if (token == QXmlStreamReader::EndElement && xmlReader.name() == QLatin1String("path")) {
-                    break;
-                }
-                
-                if (token == QXmlStreamReader::StartElement) {
-                    if (xmlReader.name() == QLatin1String("id")) {
-                        token = xmlReader.readNext();
-                        if (token == QXmlStreamReader::Characters) {
-                            id = xmlReader.text().toString();
-                        }
-                    } else if (xmlReader.name() == QLatin1String("name")) {
-                        token = xmlReader.readNext();
-                        if (token == QXmlStreamReader::Characters) {
-                            name = xmlReader.text().toString();
-                        }
-                    }
-                }
-            }
-            
-            if (!name.isEmpty()) {
-                ui->comboBoxFileAdminPath->addItem(name, id);
-                qDebug() << "Added path to File Admin tab:" << name << "(ID:" << id << ")";
-            }
-        }
-    }
-    
-    if (xmlReader.hasError()) {
-        qDebug() << "XML parsing error in parsePathsForFileAdminFieldXml:" << xmlReader.errorString();
-    }
-    
-    qDebug() << "parsePathsForFileAdminFieldXml: Paths loaded:" << ui->comboBoxFileAdminPath->count();
 }
 
 void MainWindow::parseAllFieldsXmlForLog(const QByteArray &xmlData)
