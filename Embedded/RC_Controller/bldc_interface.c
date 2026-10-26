@@ -298,6 +298,10 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 	case COMM_GET_VALUES_SETUP:
 	case COMM_GET_VALUES_SETUP_SELECTIVE: {
 		ind = 0;
+		// Minimum length: 4 bytes for mask
+		if (len < 4) {
+			break;
+		}
 
 		uint32_t mask = 0xFFFFFFFF;
 		if (id == COMM_GET_VALUES_SETUP_SELECTIVE) {
@@ -374,8 +378,12 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 		// Data format: Null-terminated string
 	case COMM_GET_VALUES_SELECTIVE: {
 		ind = 0;
+		// Check minimum length for mask (4 bytes)
+		if (len < 4) {
+			break;
+		}
 		uint32_t mask = buffer_get_uint32(data, &ind);
-		mc_values_selective v;
+		mc_values_selective v = {0}; // Initialize all fields to zero
 
 		if (mask & ((uint32_t)1 << 0))  v.temp_fet           = buffer_get_float16(data, 1e1, &ind);
 		if (mask & ((uint32_t)1 << 1))  v.temp_motor         = buffer_get_float16(data, 1e1, &ind);
@@ -408,6 +416,10 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 
 	case COMM_GET_BATTERY_CUT_NEW: {
 		// Reply (verified): l_battery_cut_start f32 1e3, l_battery_cut_end f32 1e3
+		// Minimum length: 4 + 4 = 8 bytes
+		if (len < 8) {
+			break;
+		}
 		ind = 0;
 		m_batt_cut_start = buffer_get_float32(data, 1e3, &ind);
 		m_batt_cut_end = buffer_get_float32(data, 1e3, &ind);
@@ -418,9 +430,13 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 
 	case COMM_GET_STATS_NEW: {
 		// Reply (verified): echo mask u32, then float32_auto fields.
+		// Minimum length: 4 bytes for mask
+		if (len < 4) {
+			break;
+		}
 		ind = 0;
 		uint32_t mask = buffer_get_uint32(data, &ind);
-		mc_stats st;
+		mc_stats st = {0}; // Initialize all fields to zero
 
 		if (mask & ((uint32_t)1 << 0)) st.speed_avg      = buffer_get_float32_auto(data, &ind);
 		if (mask & ((uint32_t)1 << 1)) st.speed_max      = buffer_get_float32_auto(data, &ind);
@@ -443,8 +459,12 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 		// v_in f32auto, v_out f32auto, temp f32auto,
 		// is_out_on u8, is_pch_on u8, is_dsc_on u8.
 		// NOTE: no reply is sent if the requested PSW was not found.
+		// Minimum length: 2+2+4+4+4+4+1+1+1 = 22 bytes
+		if (len < 22) {
+			break;
+		}
 		ind = 0;
-		psw_status_info psw;
+		psw_status_info psw = {0}; // Initialize all fields to zero
 		psw.id       = buffer_get_int16(data, &ind);
 		psw.psws_num = buffer_get_int16(data, &ind);
 		psw.age_s    = buffer_get_float32_auto(data, &ind);
@@ -638,9 +658,19 @@ void bldc_interface_set_rx_setup_value_func(void(*func)(mc_setup_values *values)
 	rx_setup_value_func = func;
 }
 
+// Set callback for selective values
+void bldc_interface_set_rx_value_selective_func(void(*func)(mc_values_selective *values)) {
+	rx_value_selective_func = func;
+}
+
 // Set callback for statistics
 void bldc_interface_set_rx_stats_func(void(*func)(mc_stats *stats)) {
 	rx_stats_func = func;
+}
+
+// Set callback for battery cut limits
+void bldc_interface_set_rx_batt_cut_func(void(*func)(float start, float end)) {
+	rx_batt_cut_func = func;
 }
 
 // Set callback for power switch status
