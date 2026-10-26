@@ -168,7 +168,7 @@ private slots:
     void setupFileAdminTab();
     void onFileAdminFarmSelected(int index);
     void onFileAdminFieldSelected(int index);
-    void onFileAdminPathSelected(int index);
+    void onFileAdminActionButtonClicked();
 
 
     void handleAddFieldButton();

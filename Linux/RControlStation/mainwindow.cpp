@@ -1894,6 +1894,7 @@ void MainWindow::setupFileAdminTab()
     // Connect signals (same as log tab)
     connect(ui->comboBoxFileAdminFarm, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminFarmSelected);
     connect(ui->comboBoxFileAdminField, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminFieldSelected);
+    connect(ui->pushButtonFileAdminAction, &QPushButton::clicked, this, &MainWindow::onFileAdminActionButtonClicked);
 }
 
 void MainWindow::onFileAdminFarmSelected(int index)
@@ -1951,10 +1952,86 @@ void MainWindow::onFileAdminFieldSelected(int index)
     }
 }
 
-void MainWindow::onFileAdminPathSelected(int index)
+void MainWindow::onFileAdminActionButtonClicked()
 {
-    // Path selected - could load the path data if needed
-    Q_UNUSED(index);
+    qDebug() << "onFileAdminActionButtonClicked: called";
+    
+    // Get the selected field ID from the combo box
+    int fieldIndex = ui->comboBoxFileAdminField->currentIndex();
+    if (fieldIndex < 0 || fieldIndex >= ui->comboBoxFileAdminField->count()) {
+        qDebug() << "  No field selected";
+        showStatusInfo("No field selected", false);
+        return;
+    }
+    
+    QString fieldId = ui->comboBoxFileAdminField->itemData(fieldIndex).toString();
+    qDebug() << "  fieldId =" << fieldId;
+    
+    // Get the path name from the line edit
+    QString pathName = ui->lineEditFileAdminPath->text();
+    if (pathName.isEmpty()) {
+        qDebug() << "  Path name is empty";
+        showStatusInfo("Path name cannot be empty", false);
+        return;
+    }
+    qDebug() << "  pathName =" << pathName;
+    
+    // Get the path filename from the selected table item
+    int tableRow = ui->unconnectedFieldsTable->currentRow();
+    if (tableRow < 0) {
+        qDebug() << "  No file selected in table";
+        showStatusInfo("No file selected in table", false);
+        return;
+    }
+    
+    QTableWidgetItem *filenameItem = ui->unconnectedFieldsTable->item(tableRow, 0);
+    if (!filenameItem) {
+        qDebug() << "  No filename item at row" << tableRow;
+        showStatusInfo("No filename found", false);
+        return;
+    }
+    
+    QString pathFilename = filenameItem->text();
+    qDebug() << "  pathFilename =" << pathFilename;
+    
+    // Call the server to add the path
+    QUrl url(getServerBaseUrl() + "/add_unconnected_path");
+    QUrlQuery query;
+    query.addQueryItem("field_id", fieldId);
+    query.addQueryItem("path_name", pathName);
+    query.addQueryItem("path_filename", pathFilename);
+    url.setQuery(query);
+    
+    QNetworkRequest request(url);
+    request.setTransferTimeout(10000);
+    
+    QNetworkReply* reply = mNetworkManager->post(request, QByteArray());
+    if (!reply) {
+        qDebug() << "ERROR: Network request failed";
+        showStatusInfo("Network error", false);
+        return;
+    }
+    
+    showStatusInfo("Adding path...", true);
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qDebug() << "HTTP Status Code:" << statusCode;
+        
+        if (reply->error() == QNetworkReply::NoError && statusCode == 201) {
+            QString response = reply->readAll();
+            qDebug() << "Success:" << response;
+            showStatusInfo(response, true);
+        } else {
+            QString errorMsg = reply->errorString();
+            if (statusCode != 201 && statusCode > 0) {
+                errorMsg = QString("HTTP %1: ").arg(statusCode) + reply->readAll();
+            }
+            qDebug() << "Error:" << errorMsg;
+            showStatusInfo("Error: " + errorMsg, false);
+        }
+        reply->deleteLater();
+    });
 }
 
 void MainWindow::setupLogTab()

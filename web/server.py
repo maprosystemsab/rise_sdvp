@@ -1154,6 +1154,60 @@ def add_path():
         return f"Error: {str(e)}", 500
 
 
+@app.route('/add_unconnected_path', methods=['POST'])
+def add_unconnected_path():
+    """Add a path from an unconnected field file to the database."""
+    try:
+        def get_param(name):
+            value = request.form.get(name) or request.args.get(name)
+            return value
+        
+        # Get required parameters
+        field_id = get_param('field_id')
+        path_name = get_param('path_name')
+        path_filename = get_param('path_filename')
+        
+        # Validate required fields
+        if not field_id:
+            return "Error: 'field_id' parameter is required", 400
+        
+        if not path_name:
+            return "Error: 'path_name' parameter is required", 400
+        
+        if not path_filename:
+            return "Error: 'path_filename' parameter is required", 400
+        
+        # Validate that field_id is an integer
+        try:
+            field_id_int = int(field_id)
+        except ValueError:
+            return "Error: 'field_id' parameter must be an integer", 400
+        
+        # Connect to database
+        conn = sqlite3.connect('data.db')
+        cursor = conn.cursor()
+        
+        # Insert the path into the database
+        # iPath will auto-increment
+        cursor.execute(
+            'INSERT INTO paths (name, field, storedinfile) VALUES (?, ?, ?)',
+            (path_name, field_id_int, path_filename)
+        )
+        
+        # Get the ID of the newly inserted path
+        path_id = cursor.lastrowid
+        
+        conn.commit()
+        conn.close()
+        
+        return f"Path added successfully with ID: {path_id}", 201
+        
+    except sqlite3.IntegrityError as e:
+        return f"Error: {str(e)}", 409
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+
 @app.route('/edit_path', methods=['GET', 'POST'])
 def edit_path():
     try:
