@@ -1953,7 +1953,6 @@ void MainWindow::onFileAdminFieldSelected(int index)
             int id = fieldId.toInt();
             if (id > 0) {
                 mMapWidgetFileAdmin->clearAllFields();
-                mMapWidgetFileAdmin->clearAllPaths();
                 
                 // Fetch the field from server
                 QUrl url(getServerBaseUrl() + "/field");
