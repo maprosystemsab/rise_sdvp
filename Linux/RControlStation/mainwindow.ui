@@ -4226,7 +4226,7 @@
              </widget>
             </item>
             <item>
-             <widget class="QComboBox" name="comboBoxFileAdminPath">
+             <widget class="QLineEdit" name="lineEditFileAdminPath">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>1</horstretch>
@@ -4236,6 +4236,13 @@
              </widget>
             </item>
            </layout>
+          </item>
+          <item>
+           <widget class="QPushButton" name="pushButtonFileAdminAction">
+            <property name="text">
+             <string>Action</string>
+            </property>
+           </widget>
           </item>
           <item>
            <spacer name="verticalSpacerFileAdmin">

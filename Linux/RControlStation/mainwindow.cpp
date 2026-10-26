@@ -1894,7 +1894,6 @@ void MainWindow::setupFileAdminTab()
     // Connect signals (same as log tab)
     connect(ui->comboBoxFileAdminFarm, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminFarmSelected);
     connect(ui->comboBoxFileAdminField, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminFieldSelected);
-    connect(ui->comboBoxFileAdminPath, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminPathSelected);
 }
 
 void MainWindow::onFileAdminFarmSelected(int index)
@@ -1925,7 +1924,7 @@ void MainWindow::onFileAdminFarmSelected(int index)
         
         // Clear and populate fields combo box
         ui->comboBoxFileAdminField->clear();
-        ui->comboBoxFileAdminPath->clear();
+        ui->lineEditFileAdminPath->clear();
         
         // Fetch fields for this farm from server
         if (!farmId.isEmpty()) {
@@ -1945,25 +1944,8 @@ void MainWindow::onFileAdminFieldSelected(int index)
         QString fieldId = ui->comboBoxFileAdminField->itemData(index).toString();
         qDebug() << "  fieldId =" << fieldId;
         
-        // Populate paths combo box for this field
-        ui->comboBoxFileAdminPath->clear();
-        if (modelPath && !fieldId.isEmpty()) {
-            qDebug() << "  Populating paths for fieldId:" << fieldId;
-            for (int row = 0; row < modelPath->rowCount(); row++) {
-                QStandardItem* pathFieldIdItem = modelPath->item(row, 2); // Field column has field ID
-                QStandardItem* pathNameItem = modelPath->item(row, 0);
-                if (pathFieldIdItem && pathNameItem && pathFieldIdItem->text() == fieldId) {
-                    qDebug() << "    Adding path:" << pathNameItem->text();
-                    ui->comboBoxFileAdminPath->addItem(pathNameItem->text(), pathNameItem->data(Qt::UserRole));
-                }
-            }
-            qDebug() << "  Paths added:" << ui->comboBoxFileAdminPath->count();
-        }
-        
-        // Fetch paths for this field from server
-        if (!fieldId.isEmpty()) {
-            fetchPathsForFileAdminField(fieldId.toInt());
-        }
+        // Clear the path name line edit
+        ui->lineEditFileAdminPath->clear();
     } else {
         qDebug() << "  Invalid index";
     }
@@ -2244,7 +2226,7 @@ void MainWindow::onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item)
     }
     
     // Show loading state
-    showStatusInfo("Loading border: " + filename, true);
+    showStatusInfo("Loading path: " + filename, true);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply, filename]() {
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -2256,11 +2238,11 @@ void MainWindow::onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item)
             
             if (!xmlData.isEmpty()) {
                 QXmlStreamReader xmlReader(xmlData);
-                bool success = mMapWidgetFileAdmin->loadXMLRoute(&xmlReader, true); // true = isBorder
+                bool success = mMapWidgetFileAdmin->loadXMLRoute(&xmlReader, false); // false = isPath (not border)
                 
                 if (success) {
-                    qDebug() << "Successfully loaded border file:" << filename;
-                    showStatusInfo("Loaded border: " + filename, true);
+                    qDebug() << "Successfully loaded path file:" << filename;
+                    showStatusInfo("Loaded path: " + filename, true);
                     qDebug() << "  Field count:" << mMapWidgetFileAdmin->getFieldNum();
                     
                     // Center the view on the loaded data
