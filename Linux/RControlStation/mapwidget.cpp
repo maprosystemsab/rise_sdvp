@@ -1916,6 +1916,37 @@ void MapWidget::zoomInOnRoute(int id, double margins, double wWidth, double wHei
     }
 }
 
+void MapWidget::zoomInOnFieldBorders()
+{
+    qDebug() << "zoomInOnFieldBorders: mFields =";
+    if (mFields) {
+        qDebug() << "  mFields size:" << mFields->size();
+    } else {
+        qDebug() << "  mFields is NULL";
+    }
+    
+    if (mFields && mFields->size() > 0) {
+        std::array<double, 4> extremes = findExtremeValuesFieldBorders();
+        qDebug() << "  extremes: minX=" << extremes[0] << "minY=" << extremes[1] << "maxX=" << extremes[2] << "maxY=" << extremes[3];
+        double fieldareawidth_m = extremes[2] - extremes[0];  // maxX - minX
+        double fieldareaheight_m = extremes[3] - extremes[1]; // maxY - minY
+        double offsetx_m = (extremes[0] + extremes[2]) / 2.0;  // center X
+        double offsety_m = (extremes[1] + extremes[3]) / 2.0;  // center Y
+        double scalex = 0.5 / fieldareawidth_m;
+        double scaley = 0.5 / fieldareaheight_m;
+        
+        qDebug() << "  width:" << fieldareawidth_m << "height:" << fieldareaheight_m;
+        qDebug() << "  offsetx_m:" << offsetx_m << "offsety_m:" << offsety_m << "scalex:" << scalex << "scaley:" << scaley;
+        
+        moveView(offsetx_m, offsety_m);
+        setScaleFactor(std::min(scalex, scaley));
+        update();
+        qDebug() << "  zoomInOnFieldBorders: DONE";
+    } else {
+        qDebug() << "  zoomInOnFieldBorders: No fields to zoom on";
+    }
+}
+
 double MapWidget::getOsmRes() const
 {
     return mOsmRes;
@@ -3062,13 +3093,7 @@ std::array<double, 4> MapWidget::findExtremeValuesFieldBorders()
     }*/
 
     for (const MapRoute& field : mFields->mCollection) {
-        qDebug() << "Field mRoute size:" << field.mRoute.size();
-        for (const LocPoint& point : field.mRoute) {
-            qDebug() << "LocPoint: mX=" << point.getX() << ", mY=" << point.getY() << ", mInfo=" << point.getInfo();
-        }
-        qDebug() << "Before appending, size: "  << field.mRoute.size();
         allpoints.append(field.mRoute.begin(), field.mRoute.end());
-        qDebug() << "After appending, size: "  << field.mRoute.size();
     }
 
     for (const LocPoint& point : allpoints)

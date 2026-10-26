@@ -161,6 +161,7 @@ public:
     int setNextEmptyOrCreateNewInfoTrace();
     void removeLastRoutePoint();
     void zoomInOnRoute(int id, double margins, double wWidth = -1, double wHeight = -1);
+    void zoomInOnFieldBorders();
 
     int getOsmMaxZoomLevel() const;
     void setOsmMaxZoomLevel(int osmMaxZoomLevel);

@@ -314,10 +314,23 @@ MainWindow::MainWindow(QWidget *parent) :
     // Connect cut path button
     connect(ui->cutPathButton, &QPushButton::clicked, this, &MainWindow::cutPathByArea);
 
+    // Initialize File Administration map widget handlers
+    mMapWidgetFileAdmin->setMousePressEventHandler([this](QMouseEvent *e) {
+        mMapWidgetFileAdmin->mousePressEventFields(e);
+    });
+    mMapWidgetFileAdmin->setMouseReleaseEventHandler([this](QMouseEvent *e) {
+        mMapWidgetFileAdmin->mousePressEventFields(e);
+    });
+    mMapWidgetFileAdmin->setWheelEventHandler([this](QWheelEvent *e) {
+        mMapWidgetFileAdmin->wheelEventFields(e);
+    });
+
     ui->mapWidgetFields->setMainWindow(this);
     ui->mapWidgetFields->setBorderFocus(true);
     ui->mapWidgetAnalysis->setAnalysisActive(true);
     ui->mapWidgetAnalysisResult->setMainWindow(this);
+    mMapWidgetFileAdmin->setMainWindow(this);
+    mMapWidgetFileAdmin->setBorderFocus(true);
     
     // Connect the pathsUpdated signal to refresh the graph
     connect(ui->mapWidgetAnalysisResult, &MapWidget::pathsUpdated, this, &MainWindow::updateCurrentAnalysis);
@@ -1865,6 +1878,142 @@ QStandardItemModel* MainWindow::setupFieldsTable(QTableView* uiFieldTable)
     return model;
 }
 
+void MainWindow::setupFileAdminTab()
+{
+    // Populate farms combo box from farmsModel (same as log tab but with different names)
+    ui->comboBoxFileAdminFarm->clear();
+    if (farmsModel) {
+        for (int row = 0; row < farmsModel->rowCount(); row++) {
+            QStandardItem* item = farmsModel->item(row, 0);
+            if (item) {
+                ui->comboBoxFileAdminFarm->addItem(item->text(), item->data(Qt::UserRole));
+            }
+        }
+    }
+    
+    // Connect signals (same as log tab)
+    connect(ui->comboBoxFileAdminFarm, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminFarmSelected);
+    connect(ui->comboBoxFileAdminField, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminFieldSelected);
+    connect(ui->comboBoxFileAdminPath, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFileAdminPathSelected);
+}
+
+void MainWindow::onFileAdminFarmSelected(int index)
+{
+    qDebug() << "onFileAdminFarmSelected: index =";
+    
+    // Same as onSelectedFarm but for File Admin map
+    if (farmsModel && index >= 0 && index < farmsModel->rowCount()) {
+        QStandardItem* nameItem = farmsModel->item(index, 0);
+        if (nameItem) {
+            QString lon = farmsModel->data(farmsModel->index(index, 1)).toString();
+            QString lat = farmsModel->data(farmsModel->index(index, 2)).toString();
+            
+            qDebug() << "  Setting ENU ref: lat =";
+            double llh[3];
+            llh[0] = lat.toDouble();
+            llh[1] = lon.toDouble();
+            llh[2] = 0;
+            mMapWidgetFileAdmin->setEnuRef(llh[0], llh[1], 0);
+            qDebug() << "  ENU ref set to lat:" << llh[0] << "lon:" << llh[1];
+        }
+        
+        // Populate fields combo box for this farm
+        QString farmId = nameItem->data(Qt::UserRole).toString();
+        qDebug() << "  farmId =";
+        ui->comboBoxFileAdminField->clear();
+        if (fieldsModel) {
+            qDebug() << "  Populating fields for farmId:" << farmId;
+            for (int row = 0; row < fieldsModel->rowCount(); row++) {
+                QStandardItem* fieldFarmIdItem = fieldsModel->item(row, 0); // Location column has farm ID
+                QStandardItem* fieldNameItem = fieldsModel->item(row, 1);
+                if (fieldFarmIdItem && fieldNameItem && fieldFarmIdItem->text() == farmId) {
+                    qDebug() << "    Adding field:" << fieldNameItem->text();
+                    ui->comboBoxFileAdminField->addItem(fieldNameItem->text(), fieldNameItem->data(Qt::UserRole));
+                }
+            }
+            qDebug() << "  Fields added:" << ui->comboBoxFileAdminField->count();
+        }
+    } else {
+        qDebug() << "  Invalid index or farmsModel not ready";
+    }
+}
+
+void MainWindow::onFileAdminFieldSelected(int index)
+{
+    qDebug() << "onFileAdminFieldSelected: index =";
+    
+    // Populate paths combo box for this field
+    if (fieldsModel && index >= 0 && index < fieldsModel->rowCount()) {
+        QStandardItem* fieldItem = fieldsModel->item(index, 1);
+        if (fieldItem) {
+            QString fieldId = fieldItem->data(Qt::UserRole).toString();
+            qDebug() << "  fieldId =";
+            ui->comboBoxFileAdminPath->clear();
+            if (modelPath) {
+                qDebug() << "  Populating paths for fieldId:" << fieldId;
+                for (int row = 0; row < modelPath->rowCount(); row++) {
+                    QStandardItem* pathFieldIdItem = modelPath->item(row, 2); // Field column has field ID
+                    QStandardItem* pathNameItem = modelPath->item(row, 0);
+                    if (pathFieldIdItem && pathNameItem && pathFieldIdItem->text() == fieldId) {
+                        qDebug() << "    Adding path:" << pathNameItem->text();
+                        ui->comboBoxFileAdminPath->addItem(pathNameItem->text(), pathNameItem->data(Qt::UserRole));
+                    }
+                }
+                qDebug() << "  Paths added:" << ui->comboBoxFileAdminPath->count();
+            }
+            
+            // Load the field and zoom in
+            if (!fieldId.isEmpty()) {
+                int id = fieldId.toInt();
+                qDebug() << "  Loading field id:" << id;
+                if (id > 0) {
+                    mMapWidgetFileAdmin->clearAllFields();
+                    mMapWidgetFileAdmin->clearAllPaths();
+                    
+                    QUrl url(getServerBaseUrl() + QString("/field/%1").arg(fieldId));
+                    qDebug() << "  Fetching URL:" << url.toString();
+                    QNetworkRequest request(url);
+                    request.setTransferTimeout(10000);
+                    
+                    QNetworkReply* reply = mNetworkManager->get(request);
+                    if (reply) {
+                        connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+                            int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                            qDebug() << "  Reply finished, status:" << statusCode;
+                            if (reply->error() == QNetworkReply::NoError && statusCode == 200) {
+                                QByteArray xmlData = reply->readAll();
+                                qDebug() << "  XML data size:" << xmlData.size();
+                                if (!xmlData.isEmpty()) {
+                                    QXmlStreamReader xmlReader(xmlData);
+                                    bool success = mMapWidgetFileAdmin->loadXMLRoute(&xmlReader, true);
+                                    qDebug() << "  loadXMLRoute success:" << success;
+                                    if (success && mMapWidgetFileAdmin->getFieldNum() > 0) {
+                                        qDebug() << "  Calling zoomInOnFieldBorders";
+                                        mMapWidgetFileAdmin->zoomInOnFieldBorders();
+                                    } else {
+                                        qDebug() << "  No fields to zoom on";
+                                    }
+                                }
+                            } else {
+                                qDebug() << "  Error:" << reply->errorString();
+                            }
+                            reply->deleteLater();
+                        });
+                    }
+                }
+            }
+        }
+    } else {
+        qDebug() << "  Invalid index or fieldsModel not ready";
+    }
+}
+
+void MainWindow::onFileAdminPathSelected(int index)
+{
+    // Path selected - could load the path data if needed
+    Q_UNUSED(index);
+}
+
 void MainWindow::setupLogTab()
 {
     qDebug() << "Setting up log tab...";
@@ -1995,6 +2144,7 @@ void MainWindow::onSelectedFarm(const QModelIndex& current, const QModelIndex& p
     ui->mapWidgetFields->setEnuRef(llh[0],llh[1],0);
     ui->mapWidgetAnalysis->setEnuRef(llh[0],llh[1],0);
     ui->mapWidgetAnalysisResult->setEnuRef(llh[0],llh[1],0);
+    mMapWidgetFileAdmin->setEnuRef(llh[0],llh[1],0);
 
     qDebug() << "lat: " << llh[0];
     qDebug() << "lon: " << llh[1];
@@ -2026,15 +2176,7 @@ void MainWindow::onSelectedFarm(const QModelIndex& current, const QModelIndex& p
     //            if (ui->fieldTable->model()->rowCount()>0)
     if (ui->mapWidgetFields->getFieldNum()>0)
     {
-        std::array<double, 4> extremes_m=ui->mapWidgetFields->findExtremeValuesFieldBorders();
-        double fieldareawidth_m=extremes_m[2]-extremes_m[0];
-        double fieldareaheight_m=extremes_m[3]-extremes_m[1];
-        double offsetx_m=(extremes_m[2]+extremes_m[0])/2;
-        double offsety_m=(extremes_m[3]+extremes_m[1])/2;
-        double scalex=0.5/(fieldareawidth_m);
-        double scaley=0.5/(fieldareaheight_m);
-        ui->mapWidgetFields->moveView(offsetx_m, offsety_m);
-        ui->mapWidgetFields->setScaleFactor(std::min(scalex,scaley));
+        ui->mapWidgetFields->zoomInOnFieldBorders();
    //     //                ui->fieldTable->selectRow(0);
     } else
     {
@@ -2158,18 +2300,14 @@ void MainWindow::onUnconnectedFieldsTableItemClicked(QTableWidgetItem *item)
                 if (success) {
                     qDebug() << "Successfully loaded border file:" << filename;
                     showStatusInfo("Loaded border: " + filename, true);
+                    qDebug() << "  Field count:" << mMapWidgetFileAdmin->getFieldNum();
                     
                     // Center the view on the loaded data
                     if (mMapWidgetFileAdmin->getFieldNum() > 0) {
-                        std::array<double, 4> extremes = mMapWidgetFileAdmin->findExtremeValuesFieldBorders();
-                        double offsetx = (extremes[0] + extremes[1]) / 2.0;
-                        double offsety = (extremes[2] + extremes[3]) / 2.0;
-                        double scalex = 1.0 / (extremes[1] - extremes[0]);
-                        double scaley = 1.0 / (extremes[3] - extremes[2]);
-                        
-                        mMapWidgetFileAdmin->moveView(offsetx, offsety);
-                        mMapWidgetFileAdmin->setScaleFactor(std::min(scalex, scaley) * 0.9);
-                        mMapWidgetFileAdmin->update();
+                        qDebug() << "  Calling zoomInOnFieldBorders from table click";
+                        mMapWidgetFileAdmin->zoomInOnFieldBorders();
+                    } else {
+                        qDebug() << "  No fields to zoom on";
                     }
                 } else {
                     qDebug() << "Failed to load border file:" << filename << "XML error:" << xmlReader.errorString();
@@ -5011,6 +5149,9 @@ void MainWindow::parseAllFarmsXml(const QByteArray &xmlData)
         farmsModel->appendRow(new QStandardItem("No locations"));
         farmsModel->appendRow(new QStandardItem("found"));
     }
+    
+    // Update File Administration farms combo box
+    setupFileAdminTab();
 }
 
 void MainWindow::parseAllFieldsXml(const QByteArray &xmlData)
@@ -5120,6 +5261,12 @@ void MainWindow::parseAllFieldsXml(const QByteArray &xmlData)
         qDebug() << "No fields found in all_fields XML";
         fieldsModel->appendRow(new QStandardItem("No fields"));
         fieldsModel->appendRow(new QStandardItem("found"));
+    }
+    
+    // Update File Administration fields combo box if a farm is selected
+    int currentFarmIndex = ui->comboBoxFileAdminFarm->currentIndex();
+    if (currentFarmIndex >= 0 && farmsModel && currentFarmIndex < farmsModel->rowCount()) {
+        onFileAdminFarmSelected(currentFarmIndex);
     }
 }
 
@@ -5273,6 +5420,12 @@ void MainWindow::parseAllPathsXml(const QByteArray &xmlData)
         qDebug() << "No paths found in all_paths XML";
         modelPath->appendRow(new QStandardItem("No paths"));
         modelPath->appendRow(new QStandardItem("found"));
+    }
+    
+    // Update File Administration paths combo box if a field is selected
+    int currentFieldIndex = ui->comboBoxFileAdminField->currentIndex();
+    if (currentFieldIndex >= 0 && fieldsModel && currentFieldIndex < fieldsModel->rowCount()) {
+        onFileAdminFieldSelected(currentFieldIndex);
     }
 }
 
