@@ -83,7 +83,6 @@ Lägg aldrig in lösenord, Swepos/NTRIP-uppgifter, WireGuard-nycklar eller `data
 
 * `installationsguide.md` – ST-Link och SWD-kopplingar, SSH till Pi:n
 * `Wireguard_Guide.md` – sätta upp en WireGuard-server
-* `Sakerhetsanalys.md` – säkerhetsanalys (VPN, timeout i firmwaren, nödstopp)
 * `Embedded/RC_Controller/ROVMCU.md` – MP101/ROV_MCU-kortets stiftkarta
 * `Documentation/` – RISE SDVP:s ursprungliga manual
 
