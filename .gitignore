@@ -91,3 +91,6 @@ __pycache__/
 Embedded/RTCM_Forwarder_Project/build/
 Linux/CarNetworkTester/build/
 Embedded/RC_Controller/fw_*.bin
+
+# Car_Client byggs på roboten (install_car_client.sh / robot-control uppdatera_pi.sh)
+Linux/Car_Client/Car_Client
