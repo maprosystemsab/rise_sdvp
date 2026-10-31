@@ -82,7 +82,8 @@ static bool m_en_angle_dist_comp; // Enable angle-distance compensation for stee
 #define AP_SIDA_MAX			0.10	// rad (ca 6 grader)
 #define AP_SIDA_MAX_FEL		1.5		// m; större fel (påväg in, skarp kurva) integreras inte
 static float m_sida_i = 0.0;
-
+static systime_t m_sida_t = 0;
+#endif
 // Förutseende (30.24): autopiloten räknar på var fordonet är om m_forutse_s sekunder
 // (rakt fram i nuvarande fart och kurs) i stället för var det är nu. Styrningen hinner
 // inte med direkt (hydraulventil, långsam styrmotor), så utan förutseende svänger
@@ -97,8 +98,6 @@ static float m_sida_i = 0.0;
 #define AP_FORUTSE_STANDARD		0.0
 #endif
 static float m_forutse_s = AP_FORUTSE_STANDARD;
-static systime_t m_sida_t = 0;
-#endif
 static int m_route_look_ahead; // Number of points to look ahead along the route
 static int m_route_left; // Number of points remaining in the route
 static bool m_route_end; // Flag indicating if end of route has been reached
