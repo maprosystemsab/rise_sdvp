@@ -432,6 +432,29 @@ MainWindow::MainWindow(QWidget *parent) :
         });
         statusLayout->addWidget(mAutoCenterButton, 0, Qt::AlignLeft);
         autoCenterVisa(-1);
+        // Gräsläget (lidarn på maskinen): bara det som är högre än 1 m är hinder, och
+        // Car_Client kör sakta. Skickas varje sekund medan knappen är intryckt
+        // ([id][147][1], Car_Client), så att läget släpper av sig självt om RCS stängs.
+        QPushButton *grasButton = new QPushButton("Gräsläge", statusBox);
+        grasButton->setCheckable(true);
+        grasButton->setToolTip("Kör genom högt gräs: lidarn räknar bara det som är högre än 1 m som hinder "
+                               "(personer, fordon) och maskinen kör sakta. Slå av när gräset är slut.");
+        connect(grasButton, &QPushButton::toggled, this, [grasButton](bool on) {
+            grasButton->setText(on ? "Gräsläge PÅ" : "Gräsläge");
+            grasButton->setStyleSheet(on ? "QPushButton { background-color: #6fbf4a; color: black; font-weight: bold; }" : "");
+        });
+        statusLayout->addWidget(grasButton, 0, Qt::AlignLeft);
+        QTimer *grasTimer = new QTimer(this);
+        connect(grasTimer, &QTimer::timeout, this, [this, grasButton]() {
+            if (grasButton->isChecked() && mTcpClientMulti && mTcpClientMulti->isAnyConnected() && mVehicle) {
+                QByteArray pkt;
+                pkt.append((char)mVehicle->carId());
+                pkt.append((char)147);  // gräsläget, tas emot av Car_Client
+                pkt.append((char)1);
+                mPacketInterface->sendPacket(pkt);
+            }
+        });
+        grasTimer->start(1000);
         QPushButton *mapOffsetButton = new QPushButton("Justera flygfoto…", statusBox);
         mapOffsetButton->setToolTip("Flytta flygfotot så att det stämmer med RTK-positionen (fotona ligger ofta 1–3 m fel)");
         connect(mapOffsetButton, &QPushButton::clicked, this, &MainWindow::adjustMapOffset);
