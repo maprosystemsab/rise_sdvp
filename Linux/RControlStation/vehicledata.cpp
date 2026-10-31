@@ -335,8 +335,12 @@ void VehicleData::tick(bool connected)
 
 void VehicleData::startLog()
 {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)
-            + "/RControlStation-korloggar";
+    // Kontorsdatorn har projektmappen ~/RControlStation (sedan 2026-10-31): körloggarna
+    // hamnar där. Annars Hämtningar/RControlStation-korloggar som förut.
+    QString projekt = QDir::homePath() + "/RControlStation/blandade projektfiler";
+    QString dir = QDir(projekt).exists()
+            ? projekt + "/korloggar"
+            : QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/RControlStation-korloggar";
     QDir().mkpath(dir);
     mLog.setFileName(dir + "/" + QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss") + ".csv");
     if (mLog.open(QIODevice::WriteOnly | QIODevice::Text)) {
