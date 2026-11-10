@@ -367,6 +367,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 22)); // + autopiloten drar in sidofel
     mSupportedFirmwares.append(qMakePair(30, 23)); // + avstudsad hjulgivare
     mSupportedFirmwares.append(qMakePair(30, 24)); // + förutseende autopilot (mot vingel)
+    mSupportedFirmwares.append(qMakePair(30, 25)); // + heartbeat-timeout nollar manuell gas
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
