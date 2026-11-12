@@ -9,6 +9,8 @@
 #   ./flash_styrkort_rovmcu.sh --bara-bygg                   bygg bara, rör ingen hårdvara
 #   ./flash_styrkort_rovmcu.sh --st-link                     tvinga ST-Link
 #   ./flash_styrkort_rovmcu.sh --cm5                         tvinga CM5:ans SWD-ben
+#   --nodstopp-di1 --lagesknapp-di2                          som mk1 (.16): nödstopp DI1, lägesknapp DI2
+#   (glöms de byggs firmware utan dem: nödstoppet går inte att läsa, mk1 2026-11-12)
 #
 # Firmware: make robant BOARD=mp101 (eller mactrac/drangen via --profile).
 # Se Embedded/RC_Controller/ROVMCU.md. ELF-filen flashas, så
@@ -24,7 +26,7 @@ FW_DIR="$DIR/Embedded/RC_Controller"
 
 RED='\e[31m'; GREEN='\e[32m'; YELLOW='\e[33m'; BOLD='\e[1m'; NC='\e[0m'
 
-SATT=""; JA=0; BARA_BYGG=0; PROFILE=robant
+SATT=""; JA=0; BARA_BYGG=0; PROFILE=robant; FW_VAL=()
 ORIGINAL_ARGS=("$@")
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -32,6 +34,8 @@ while [ "$#" -gt 0 ]; do
     --cm5) SATT="cm5"; shift ;;
     --ja) JA=1; shift ;;
     --bara-bygg) BARA_BYGG=1; shift ;;
+    --nodstopp-di1) FW_VAL+=(--nodstopp-di1); shift ;;
+    --lagesknapp-di2) FW_VAL+=(--lagesknapp-di2); shift ;;
     --profile) [ "$#" -ge 2 ] || exit 1; PROFILE="$2"; shift 2 ;;
     -h|--hjalp|--help)
       sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'
@@ -51,7 +55,7 @@ if [ -z "$SATT" ] && lsusb 2>/dev/null | grep -qi "st-link"; then
 fi
 if [ "$SATT" = "stlink" ]; then
   echo -e "${BOLD}ST-Link hittad: flashar med flash_styrkort.sh.${NC}"
-  ARGS=(--maskin rovmcu --fw-dir "$FW_DIR" --profile "$PROFILE")
+  ARGS=(--maskin rovmcu --fw-dir "$FW_DIR" --profile "$PROFILE" "${FW_VAL[@]}")
   [ "$JA" -eq 1 ] && ARGS+=(--ja)
   [ "$BARA_BYGG" -eq 1 ] && ARGS+=(--bara-bygg)
   exec "$DIR/flash_styrkort.sh" "${ARGS[@]}"
@@ -63,7 +67,7 @@ fi
 
 echo -e "${BOLD}Bygger firmware för ROV_MCU...${NC}"
 BUILD_LOG=$(mktemp /tmp/rovmcu_bygg.XXXXXX.log) || exit 1
-if ! bash "$DIR/flash_styrkort.sh" --maskin rovmcu --profile "$PROFILE" --fw-dir "$FW_DIR" --bara-bygg >"$BUILD_LOG" 2>&1; then
+if ! bash "$DIR/flash_styrkort.sh" --maskin rovmcu --profile "$PROFILE" --fw-dir "$FW_DIR" "${FW_VAL[@]}" --bara-bygg >"$BUILD_LOG" 2>&1; then
   tail -20 "$BUILD_LOG"
   echo -e "${RED}❌ Bygget misslyckades (hela loggen: $BUILD_LOG).${NC}"
   exit 1

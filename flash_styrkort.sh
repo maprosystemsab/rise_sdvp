@@ -47,6 +47,7 @@ usage() {
   echo "  --profile robant|mactrac|drangen (with --maskin rovmcu)"
 }
 
+EXTRA_MAKE=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --maskin)     FW_NAME="$2"; shift 2 ;;
@@ -55,6 +56,8 @@ while [ $# -gt 0 ]; do
     --bara-bygg)  BUILD_ONLY=1; shift ;;
     --fw-dir)     FW_DIR_ARG="$2"; shift 2 ;;
     --ja)         AUTO_JA=1; shift ;;
+    --nodstopp-di1)  EXTRA_MAKE+=(NODSTOPP=di1); shift ;;
+    --lagesknapp-di2) EXTRA_MAKE+=(LAGESKNAPP=di2); shift ;;
     -h|--hjalp|--help) usage; exit 0 ;;
     *) echo -e "${RED}Okänt argument: $1${NC}"; usage; exit 1 ;;
   esac
@@ -152,7 +155,9 @@ if [ -n "$PROFILE" ]; then
 fi
 if [ "$FW_NAME" = rovmcu ]; then
   MAKE_TARGET="${PROFILE:-robant}"
-  MAKE_BOARD=(BOARD=mp101)
+  MAKE_BOARD=(BOARD=mp101 "${EXTRA_MAKE[@]}")
+elif [ "${#EXTRA_MAKE[@]}" -gt 0 ]; then
+  echo "--nodstopp-di1/--lagesknapp-di2 finns bara med --maskin rovmcu (MP101)" >&2; exit 1
 fi
 
 # Med --patch byggs en tillfällig kopia (patchen är skriven med sökvägar som
