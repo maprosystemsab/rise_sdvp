@@ -1,26 +1,28 @@
 ; generator_maxim.lisp — LispBM för VESC Maxim+ på elverket (RobAnt, firmware 30.27)
 ;
-; Styr Hondans stoppkabel via pin 6 "SW HV" (low-side-switch) efter styrkortets
+; Styr Hondans stoppkabel via ett relä på +12VA (AUX1, pin 17) efter styrkortets
 ; CAN-meddelande (standard-ID 0x05E, var 100:e ms): [0x47 'G'][1 = får gå / 0 = stopp][generator-ID]
 ;
-; FELSÄKER KOPPLING (viktigt):
-;   SW HV driver spolen på ett relä (48 V-spole, mellan VBAT+ och pin 6, med
-;   frihjulsdiod). Reläets NC-kontakt (normalt sluten) går mellan Hondans
-;   stoppkabel och motorblocket (jord).
-;     spolen strömsatt  -> NC öppen  -> stoppkabeln fri  -> Hondan får gå
-;     spolen strömlös   -> NC sluten -> stoppkabeln jordad -> Hondan stannar
-;   Alltså stannar Hondan också om Maxim+ blir strömlös, skriptet inte körs,
-;   CAN-kabeln går av eller styrkortet dör. (Kopplar man stoppkabeln direkt till
-;   pin 6 blir det tvärtom: död Maxim+ = Hondan går vidare. Gör inte så.)
+; Enligt Maxim+-databladet (rev. okt 2026): set-aux port 1 = STM AUX1 = +12VA (pin 17 och 30,
+; 12 V 3 A, kortslutningsskyddad). Port 2 = AUX2 = SW HV (pin 6, oskyddad low-side) – används INTE.
+;
+; FELSÄKER KOPPLING:
+;   12 V bilrelä med växlande kontakt (5 stift: 30, 87, 87a, 85, 86).
+;   86 <- Maxim+ pin 17 (+12VA), 85 -> Maxim+ pin 16 (GND).  (Relä med inbyggd diod: + på 86.)
+;   30 <- Hondans stoppkabel, 87a -> motorblocket (jord), 87 lämnas tomt.
+;     spolen strömsatt  -> 87a öppen  -> stoppkabeln fri    -> Hondan får gå
+;     spolen strömlös   -> 87a sluten -> stoppkabeln jordad -> Hondan stannar
+;   Hondan stannar alltså också om Maxim+ blir strömlös, skriptet inte körs,
+;   CAN-kabeln går av eller styrkortet dör. Reläet skiljer dessutom Hondans tändning
+;   galvaniskt från Maxim+.
 ;
 ; Läggs in i VESC Tool: VESC Dev Tools -> Lisp -> öppna filen -> Upload (kör vid start).
 ; KONTROLLERA PÅ BÄNKEN med multimeter innan Hondan kopplas in:
-;   - att set-aux port 1 verkligen är SW HV (pin 6) på Maxim+ (står i VESC Tool
-;     under hårdvarans beskrivning; annars byt kill-port eller använd gpio-write);
+;   - att pin 17 är 0 V när Maxim+ startat (skriptet släpper reläet direkt);
 ;   - att reläet drar när styrkortet kör `gen start` och släpper inom 0,5 s när
 ;     CAN-kabeln dras ur.
 
-(def kill-port 1)        ; AUX-utgången som är SW HV
+(def kill-port 1)        ; AUX1 = +12VA, pin 17 (relä 86)
 (def tyst-grans 0.5)     ; sekunder utan meddelande -> stopp
 (def far-ga 0)
 (def sist-ok (systime))

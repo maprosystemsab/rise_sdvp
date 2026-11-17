@@ -8,7 +8,8 @@
 	  - varv/ström läses ur VESC:ens statusmeddelanden (STATUS 1 och 5 måste vara på)
 	  - stoppkabeln: eget standard-ID GEN_CAN_SID var 100:e ms, [0x47 'G'][1 = får gå,
 	    0 = jorda][generator-ID]. En LispBM-snutt på Maxim+ (generator_maxim.lisp) styr
-	    pin 6 "SW HV" som jordar Hondans stoppkabel, och jordar den själv om
+	    +12VA (pin 17) som drar ett relä vars NC-kontakt annars jordar Hondans
+	    stoppkabel; reläet släpper (= jordar) även om
 	    meddelandena slutar komma (styrkortet dött, CAN-kabeln av).
 
 	Förlopp (generator_start):
