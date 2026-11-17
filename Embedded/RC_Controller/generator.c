@@ -43,6 +43,7 @@
 #include "buffer.h"
 #include "terminal.h"
 #include "timeout.h"
+#include "nodstopp_di.h"
 
 #ifndef GEN_VESC_ID
 #define GEN_VESC_ID				60		// Maxim+:s CAN-ID (sätts i VESC Tool)
@@ -215,6 +216,9 @@ static void las_status(void) {
 // --- Gränssnitt ---------------------------------------------------------------
 
 static bool nodstopp_sparrar(void) {
+	if (!nodstopp_di_tillater_start()) {
+		return true;	// MP101:s DI1: intryckt eller spärrad (väntar på stoppkommando)
+	}
 	return m_nodstopp_hord &&
 			ST2MS(chVTTimeElapsedSinceX(m_nodstopp_tid)) < GEN_NODSTOPP_SPARR_MS;
 }

@@ -180,3 +180,11 @@ bool nodstopp_di_sparrar(uint8_t packet_id, const unsigned char *data, unsigned 
 }
 
 #endif	// NODSTOPP_DI1
+
+bool nodstopp_di_tillater_start(void) {
+#ifdef NODSTOPP_DI1
+	return m_lage == NS_OK;
+#else
+	return true;
+#endif
+}

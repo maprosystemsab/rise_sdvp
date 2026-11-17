@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 T=$(mktemp -d)
 cp stub/*.h sim.c "$T"/
 cp ../../generator.c ../../generator.h "$T"/
+cp stub/nodstopp_di.h "$T"/
 gcc -std=gnu99 -Wall -Wextra -I"$T" -o "$T/sim" "$T/sim.c" -lm
 "$T/sim"
 rm -rf "$T"

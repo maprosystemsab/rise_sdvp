@@ -1666,6 +1666,11 @@ bool CarClient::nodstoppSparrar(const QByteArray &data)
         // Elverket: start och automatik spärras, status/stopp går igenom.
         korning = data.size() >= 3 && ((quint8)data[2] == 1 || (quint8)data[2] == 3);
         break;
+    case CMD_TERMINAL_CMD: {
+        // Samma sak skriven i terminalen: "gen start" / "gen auto pa".
+        const QString t = QString::fromLatin1(data.mid(2)).simplified().toLower();
+        korning = t.startsWith("gen start") || t.startsWith("gen auto pa");
+    } break;
     default:
         break;
     }

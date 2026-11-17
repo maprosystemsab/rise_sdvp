@@ -12,5 +12,9 @@ void nodstopp_di_init(void);
 // Sant = kommandot ska inte utföras (det kan få roboten att röra sig medan nödstoppet spärrar).
 // data/len är kommandots data efter paket-ID, som i commands_process_packet.
 bool nodstopp_di_sparrar(uint8_t packet_id, const unsigned char *data, unsigned int len);
+// Sant om DI1-nödstoppet tillåter att något startas (läge OK). Utan NODSTOPP_DI1 alltid sant.
+// Används av elverket så att ingen väg (RCS, terminalen, automatiken) startar Hondan
+// medan knappen är intryckt eller spärren väntar på stoppkommando.
+bool nodstopp_di_tillater_start(void);
 
 #endif /* NODSTOPP_DI_H_ */
