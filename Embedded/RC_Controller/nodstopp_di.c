@@ -163,6 +163,10 @@ bool nodstopp_di_sparrar(uint8_t packet_id, const unsigned char *data, unsigned 
 	case CMD_TEST_SPIN_VESC:
 		korning = true;
 		break;
+	case CMD_GENERATOR:
+		// Elverket: start och automatik spärras, status/stopp går igenom.
+		korning = len >= 1 && (data[0] == 1 || data[0] == 3);
+		break;
 	default:
 		break;
 	}

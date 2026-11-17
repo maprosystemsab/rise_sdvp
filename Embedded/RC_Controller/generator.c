@@ -80,6 +80,12 @@ static volatile bool m_vill_start = false;
 static volatile bool m_vill_stopp = false;
 static volatile bool m_auto = false;
 static volatile bool m_vill_nodstopp = false;
+// Båda nödstoppen (Car_Clients GPIO och MP101:s DI1) anropar generator_nodstopp var
+// 200:e ms så länge knappen är intryckt. Start och automatik vägras tills det varit
+// tyst i GEN_NODSTOPP_SPARR_MS, oavsett om de kommer från RCS, terminalen eller tråden.
+#define GEN_NODSTOPP_SPARR_MS	1000
+static volatile systime_t m_nodstopp_tid = 0;
+static volatile bool m_nodstopp_hord = false;
 static int m_forsok_nr = 0;
 static systime_t m_lage_tid = 0;
 static float m_varv = 0.0f;			// senaste varv/min (mekaniskt, utan tecken)
@@ -208,7 +214,16 @@ static void las_status(void) {
 
 // --- Gränssnitt ---------------------------------------------------------------
 
+static bool nodstopp_sparrar(void) {
+	return m_nodstopp_hord &&
+			ST2MS(chVTTimeElapsedSinceX(m_nodstopp_tid)) < GEN_NODSTOPP_SPARR_MS;
+}
+
 void generator_start(void) {
+	if (nodstopp_sparrar()) {
+		commands_printf("Elverk: start vagras, nodstoppet ar intryckt");
+		return;
+	}
 	m_vill_start = true;
 	m_vill_stopp = false;
 }
@@ -225,11 +240,17 @@ void generator_nodstopp(void) {
 	m_vill_stopp = false;
 	m_auto = false;
 	m_vill_nodstopp = true;
+	m_nodstopp_tid = chVTGetSystemTimeX();
+	m_nodstopp_hord = true;
 	slapp();
 	skicka_stoppkabel_varde(false);
 }
 
 void generator_auto(bool pa) {
+	if (pa && nodstopp_sparrar()) {
+		commands_printf("Elverk: automatik vagras, nodstoppet ar intryckt");
+		return;
+	}
 	m_auto = pa;
 }
 
@@ -320,7 +341,9 @@ static THD_FUNCTION(gen_thread, arg) {
 		}
 		if (m_vill_start) {
 			m_vill_start = false;
-			if (m_lage == GEN_AV || m_lage == GEN_STOPPAD_FEL || m_lage == GEN_STOPPAR) {
+			if (nodstopp_sparrar()) {
+				// nödstopp mellan kommandot och tråden: inget
+			} else if (m_lage == GEN_AV || m_lage == GEN_STOPPAD_FEL || m_lage == GEN_STOPPAR) {
 				m_fel = GEN_FEL_INGET;
 				if (m_id < 0) {
 					satt_fel(GEN_FEL_EJ_KONFIG);
@@ -337,7 +360,7 @@ static THD_FUNCTION(gen_thread, arg) {
 		}
 
 		// Batteriautomatiken
-		if (m_auto && m_status_ok && m_start_v > 1.0f && m_lage == GEN_AV &&
+		if (m_auto && !nodstopp_sparrar() && m_status_ok && m_start_v > 1.0f && m_lage == GEN_AV &&
 				m_vin > 1.0f && m_vin < m_start_v) {
 			commands_printf("Elverk: automatisk start (%.1f V < %.1f V)",
 					(double)m_vin, (double)m_start_v);

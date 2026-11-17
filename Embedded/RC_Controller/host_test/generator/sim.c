@@ -39,6 +39,8 @@ int main(void){
   kor(4); rapport("4 s senare"); if(gar) fel++;
   printf("TEST 4: nödstopp mitt i vevningen\n"); nollstall(); generator_start(); kor(0.6); generator_nodstopp(); rapport("direkt efter nödstopp (kabel)"); if(kill_open) fel++; kor(0.1); rapport("efter ett varv"); if(kill_open||m_fel!=GEN_FEL_NODSTOPP) fel++;
   kor(3); rapport("3 s senare"); if(gar||m_lage!=GEN_STOPPAD_FEL) fel++;
+  printf("TEST 4b: start vägras medan nödstoppet är intryckt\n"); nollstall(); generator_nodstopp(); kor(0.1); generator_auto(true); if(m_auto) fel++; generator_start(); kor(0.5); rapport("start under nödstopp"); if(m_lage==GEN_VEVAR||kill_open) fel++;
+  sim_now+=2000; generator_start(); kor(1); rapport("start 2 s efter nödstopp"); if(m_lage!=GEN_VEVAR&&m_lage!=GEN_KOLLAR) fel++;
   printf("TEST 5: Maxim+ hörs inte vid start\n"); nollstall(); can_tyst=true; st.rx_time=0; sim_now+=5000; generator_start(); kor(1); rapport("start utan CAN"); if(m_fel!=GEN_FEL_CAN||kill_open) fel++;
   printf("TEST 6: batteri fullt stoppar\n"); nollstall(); m_full_v=55; generator_start(); kor(8); st.v_in=56; kor(6); rapport("56 V"); if(m_lage!=GEN_AV||gar) fel++; m_full_v=0; st.v_in=51;
   printf("TEST 7: ingen kontakt med föraren (tapp 2 s)\n"); nollstall(); m_tapp_s=2; generator_start(); kor(8); sim_timeout=true; kor(9); rapport("tappad länk"); if(gar||m_fel!=GEN_FEL_INGEN_KONTAKT) fel++; m_tapp_s=120;
