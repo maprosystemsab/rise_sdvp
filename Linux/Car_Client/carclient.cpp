@@ -1516,6 +1516,7 @@ const quint8 NS_CMD_RC_CONTROL_ADV = 125;
 const quint8 NS_CMD_STATE_CONTROL_ENABLE = 132;
 const quint8 NS_CMD_STATE_CONTROL_TARGET = 133;
 const quint8 NS_CMD_TEST_SPIN_VESC = 142; // provsnurr från Robotstyrning (firmware 30.4)
+const quint8 NS_CMD_GENERATOR = 152;      // elverket (firmware 30.27): [op] 1 start, 2 stopp, 3 auto på, 5 nödstopp
 // Car_Client -> klienterna varje sekund: [id][143][läge], läge 0 ok, 1 intryckt,
 // 2 spärrad (utdragen, väntar på Stopp), 3 fel. RControlStation visar det på Stopp-knappen.
 const quint8 NS_CMD_NODSTOPP_STATUS = 143;
@@ -1580,6 +1581,13 @@ void CarClient::nodstoppTick()
             fart.append((char)NS_AKTIVITET_FART);
             fart.append(QByteArray(4, 0));
             mPacketInterface->sendPacket(fart);
+            // Elverket (firmware 30.27): jorda Hondans stoppkabel. Äldre firmware
+            // ignorerar okända kommandon.
+            QByteArray gen;
+            gen.append((char)255);
+            gen.append((char)NS_CMD_GENERATOR);
+            gen.append((char)5);    // nödstopp
+            mPacketInterface->sendPacket(gen);
             mNsStoppSkickat.start();
         }
         if (!mNsApSkickat.isValid() || mNsApSkickat.elapsed() >= 1000) {
@@ -1653,6 +1661,10 @@ bool CarClient::nodstoppSparrar(const QByteArray &data)
     case NS_CMD_STATE_CONTROL_TARGET:
     case NS_CMD_TEST_SPIN_VESC:
         korning = true;
+        break;
+    case NS_CMD_GENERATOR:
+        // Elverket: start och automatik spärras, status/stopp går igenom.
+        korning = data.size() >= 3 && ((quint8)data[2] == 1 || (quint8)data[2] == 3);
         break;
     default:
         break;

@@ -158,6 +158,7 @@ void comm_can_init(void) {
 	// Initialize status message storage
 	for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
 		stat_msgs[i].id = -1; // Mark as unused
+		stat_msgs[i].v_in = 0.0f;
 	}
 
 	// Initialize circular buffer indices
@@ -378,6 +379,18 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 							stat_tmp->rpm = (float)buffer_get_int32(rxmsg.data8, &ind);
 							stat_tmp->current = (float)buffer_get_int16(rxmsg.data8, &ind) / 10.0;
 							stat_tmp->duty = (float)buffer_get_int16(rxmsg.data8, &ind) / 1000.0;
+							break;
+						}
+					}
+					break;
+
+				case CAN_PACKET_STATUS_5:
+					// Bara spänningen, och bara för en VESC vars STATUS redan hörts.
+					for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
+						stat_tmp = &stat_msgs[i];
+						if (stat_tmp->id == id && rxmsg.DLC >= 6) {
+							ind = 4;
+							stat_tmp->v_in = (float)buffer_get_int16(rxmsg.data8, &ind) / 10.0f;
 							break;
 						}
 					}

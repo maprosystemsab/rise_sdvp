@@ -493,6 +493,15 @@ private:
     int mAutoCenterLage = -1;
     QElapsedTimer mAutoCenterSenast;
     void autoCenterVisa(int lage);
+    // Elverket (firmware 30.27, CMD_GENERATOR 152): rutan under Stopp-knappen. Syns
+    // bara när styrkortet hör en generator-VESC (eller elverket inte står AV).
+    QGroupBox *mGenBox = nullptr;
+    QLabel *mGenLabel = nullptr;
+    QPushButton *mGenButton = nullptr;
+    int mGenLage = -1;          // -1 = inget svar
+    QElapsedTimer mGenSenast;
+    void genVisa(const QByteArray &pkt);
+    void genSkicka(quint8 op);
     bool gamepadAttached();
 
     // Armar (L1/L2 fram, R1/R2 bak). Skickas två vägar, varje maskin använder den

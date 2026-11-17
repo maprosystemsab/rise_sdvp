@@ -163,6 +163,9 @@ typedef enum {
 
 // CAN commands
 typedef enum {
+	// Standard-VESC: ström [A*1000 i32] till ett ID (elverket, generator.c)
+	CAN_PACKET_SET_CURRENT = 1,
+	CAN_PACKET_SET_CURRENT_BRAKE = 2,
 	CAN_PACKET_FILL_RX_BUFFER = 5,
 	CAN_PACKET_FILL_RX_BUFFER_LONG,
 	CAN_PACKET_PROCESS_RX_BUFFER,
@@ -170,7 +173,9 @@ typedef enum {
 	CAN_PACKET_STATUS,
 	// Samma nummer som i VESC-firmware: PING till ett ID ger PONG tillbaka.
 	CAN_PACKET_PING = 17,
-	CAN_PACKET_PONG = 18
+	CAN_PACKET_PONG = 18,
+	// [tacho i32][v_in V*10 i16][reserv i16] (elverkets batterispänning)
+	CAN_PACKET_STATUS_5 = 27
 } CAN_PACKET_ID;
 
 // Commands
@@ -253,6 +258,7 @@ typedef enum {
     // 147 är UPPTAGET: gräsläget, [id][147][1] från RControlStation varje sekund, tas
     // emot av Car_Client (skrivs till /tmp/lidar_gras_rcs för lidarenheten), når inte kortet.
     CMD_GET_VINKEL = 150,       // 30.12: vinkelgivaren (mV, grader, status) utan att nollställa säkerhetstiden
+    CMD_GENERATOR = 152,        // 30.27: elverket [op u8: 0 status, 1 start, 2 stopp, 3 auto på, 4 auto av, 5 nödstopp] -> status (generator.h)
     CMD_SET_AUTOCENTRERING = 151, // 30.18: [på u8] autocentrering på/av, sparas i styrkortet
 
 	// Mote commands
@@ -1140,6 +1146,7 @@ typedef struct {
 	float rpm;
 	float current;
 	float duty;
+	float v_in;		// från CAN_PACKET_STATUS_5 (0 om VESC:en inte skickar den)
 } can_status_msg;
 
 

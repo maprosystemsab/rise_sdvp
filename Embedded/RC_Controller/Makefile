@@ -200,6 +200,7 @@ CSRC = $(STARTUPSRC) \
        timer.c \
        wheelspeed.c \
        motor_control.c \
+       generator.c \
        steering_control.c \
        styr_position.c \
        nodstopp_di.c \

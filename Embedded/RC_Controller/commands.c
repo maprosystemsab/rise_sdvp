@@ -16,6 +16,7 @@
  */
 
 #include "commands.h"
+#include "generator.h"
 #include "nodstopp_di.h"
 #include "lagesknapp_di.h"
 #include "ch.h"
@@ -1244,6 +1245,24 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			m_send_buffer[send_index++] = 0;
 #endif
 			commands_send_packet(m_send_buffer, send_index);
+		} break;
+
+		case CMD_GENERATOR: {
+			// [op u8: 0 status, 1 start, 2 stopp/kvittera, 3 auto på, 4 auto av, 5 nödstopp]
+			// Svar: generator_status_paket. Ingen timeout_reset(): inget körkommando.
+			commands_set_send_func(func);
+			if (len >= 1) {
+				switch (data[0]) {
+				case 1: generator_start(); break;
+				case 2: generator_stopp(); break;
+				case 3: generator_auto(true); break;
+				case 4: generator_auto(false); break;
+				case 5: generator_nodstopp(); break;	// Car_Clients nödstopp
+				default: break;
+				}
+			}
+			int n = generator_status_paket(m_send_buffer, id_ret);
+			commands_send_packet(m_send_buffer, n);
 		} break;
 
 		case CMD_SET_AUTOCENTRERING: {

@@ -36,6 +36,7 @@
 #include "autopilot.h"
 #include "motor_control.h"
 #include "buffer.h"
+#include "generator.h"
 
 #if SERVO_VESC_ID < 0
 #error "NODSTOPP_DI1: maskinen styr med PWM-servo på PB0 (DI1), välj en maskin med VESC-styrning"
@@ -76,6 +77,7 @@ static void stoppa(void) {
 	autopilot_set_active(false);
 	motor_rc_adv(NS_AKTIVITET_FART, 0.0);
 	motor_stop();
+	generator_nodstopp();
 }
 
 void nodstopp_di_init(void) {

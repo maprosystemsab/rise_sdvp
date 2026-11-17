@@ -24,6 +24,7 @@
 #include <array>
 #include <algorithm>
 #include <QMessageBox>
+#include <functional>
 #include <QPointer>
 #include <QJsonObject>
 #include <QJsonDocument>
@@ -369,6 +370,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 24)); // + förutseende autopilot (mot vingel)
     mSupportedFirmwares.append(qMakePair(30, 25)); // + heartbeat-timeout nollar manuell gas
     mSupportedFirmwares.append(qMakePair(30, 26)); // + tålig vinkelgivare, kurs från två antenner
+    mSupportedFirmwares.append(qMakePair(30, 27)); // + elverk med fjärrstart (CMD_GENERATOR 152)
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
@@ -602,6 +604,9 @@ MainWindow::MainWindow(QWidget *parent) :
             mAutoCenterSenast.start();
             autoCenterVisa(pkt.size() >= 11 ? (quint8)pkt[10] : 4);
         }
+        if ((quint8)cmd == 152 && id == mVehicle->carId() && pkt.size() >= 15) {
+            genVisa(pkt);
+        }
     });
 
     // Stopp-knappen visar nödstoppet. Hörs inget från Car_Client på 3 s
@@ -615,6 +620,67 @@ MainWindow::MainWindow(QWidget *parent) :
         }
     });
     nodstoppTimer->start(1000);
+
+    // Elverket: ruta direkt under Stopp-knappen. Frågar styrkortet varje sekund
+    // ([id][152][0] är bara läsning); dold tills en generator-VESC hörs.
+    {
+        mGenBox = new QGroupBox("Elverk", this);
+        QVBoxLayout *genLayout = new QVBoxLayout(mGenBox);
+        genLayout->setContentsMargins(6, 4, 6, 4);
+        mGenLabel = new QLabel(mGenBox);
+        mGenLabel->setTextFormat(Qt::RichText);
+        genLayout->addWidget(mGenLabel);
+        mGenButton = new QPushButton("Starta elverk", mGenBox);
+        genLayout->addWidget(mGenButton);
+        connect(mGenButton, &QPushButton::clicked, this, [this]() {
+            if (mGenLage == 0 || mGenLage == 6) {
+                if (QMessageBox::question(this, "Starta elverket",
+                        "Starta Hondan?\n\nKontrollera bränslet och chokens läge, och att ingen "
+                        "står vid elverket.") != QMessageBox::Yes) {
+                    return;
+                }
+                genSkicka(1);
+            } else if (mGenLage > 0) {
+                genSkicka(2);
+            }
+        });
+        mGenBox->setVisible(false);
+
+        // Lägg rutan i samma layout som Stopp-knappen, direkt under den.
+        std::function<QBoxLayout*(QLayout*)> hitta = [&](QLayout *l) -> QBoxLayout* {
+            if (!l) {
+                return nullptr;
+            }
+            for (int i = 0;i < l->count();i++) {
+                QLayoutItem *it = l->itemAt(i);
+                if (it->widget() == ui->stopButton) {
+                    return qobject_cast<QBoxLayout*>(l);
+                }
+                if (QBoxLayout *b = hitta(it->layout())) {
+                    return b;
+                }
+            }
+            return nullptr;
+        };
+        QBoxLayout *stoppLayout = hitta(ui->stopButton->parentWidget()->layout());
+        if (stoppLayout) {
+            stoppLayout->insertWidget(stoppLayout->indexOf(ui->stopButton) + 1, mGenBox);
+        } else {
+            ui->verticalLayout->insertWidget(0, mGenBox);
+        }
+
+        QTimer *genTimer = new QTimer(this);
+        connect(genTimer, &QTimer::timeout, this, [this]() {
+            if (mTcpClientMulti && mTcpClientMulti->isAnyConnected() && mVehicle) {
+                genSkicka(0);
+            }
+            if (mGenLage != -1 && (!mGenSenast.isValid() || mGenSenast.elapsed() > 3500)) {
+                mGenLage = -1;
+                mGenBox->setVisible(false);
+            }
+        });
+        genTimer->start(1000);
+    }
     connect(ui->mapLiveWidget, SIGNAL(posSet(quint8,LocPoint)),
             this, SLOT(mapPosSet(quint8,LocPoint)));
     connect(mPacketInterface, SIGNAL(ackReceived(quint8,CMD_PACKET,QString)),
@@ -6318,6 +6384,63 @@ void MainWindow::nodstoppVisa(int lage)
         ui->stopButton->setText("STOPP");
         ui->stopButton->setStyleSheet("");
         ui->stopButton->setToolTip("Stop all cars");
+    }
+}
+
+void MainWindow::genSkicka(quint8 op)
+{
+    QByteArray pkt;
+    pkt.append((char)mVehicle->carId());
+    pkt.append((char)152);  // CMD_GENERATOR
+    pkt.append((char)op);
+    mPacketInterface->sendPacket(pkt);
+}
+
+void MainWindow::genVisa(const QByteArray &pkt)
+{
+    // [id][152][läge][fel][varv i16][ström A*10 i16][batteri V*10 u16][försök][auto]
+    // [laddström A*10 u16][Maxim+ hörs]
+    auto i16 = [&pkt](int i) { return (qint16)(((quint8)pkt[i] << 8) | (quint8)pkt[i + 1]); };
+    const int lage = (quint8)pkt[2];
+    const int fel = (quint8)pkt[3];
+    const int varv = i16(4);
+    const double strom = i16(6) / 10.0;
+    const double volt = (quint16)i16(8) / 10.0;
+    const int forsok = (quint8)pkt[10];
+    const bool hors = (quint8)pkt[14] != 0;
+
+    mGenSenast.start();
+    mGenLage = lage;
+    mGenBox->setVisible(hors || lage != 0);
+
+    static const char *lageText[] = {"Av", "Vevar…", "Kollar om den går…", "Paus mellan försök",
+                                     "Laddar", "Stoppar…", "FEL"};
+    static const char *felText[] = {"", "startade inte", "Hondan stannade", "övervarv",
+                                    "Maxim+ hörs inte på CAN", "nödstopp", "ingen kontakt med föraren",
+                                    "inget generator-ID", "motorn vrids inte"};
+    QString t = QString("<b>%1</b>").arg(lage <= 6 ? lageText[lage] : "?");
+    if (lage == 1 || lage == 2 || lage == 3) {
+        t += QString(" (försök %1)").arg(forsok);
+    }
+    if (lage == 6 && fel >= 1 && fel <= 8) {
+        t = QString("<b style='color:#c62828'>FEL: %1</b>").arg(felText[fel]);
+    }
+    if (hors) {
+        t += QString("<br>%1 varv/min, %2 A").arg(varv).arg(strom, 0, 'f', 1);
+        if (volt > 1.0) {
+            t += QString(", %1 V").arg(volt, 0, 'f', 1);
+        }
+    } else {
+        t += "<br>Maxim+ hörs inte";
+    }
+    mGenLabel->setText(t);
+
+    if (lage == 0 || lage == 6) {
+        mGenButton->setText(lage == 6 ? "Starta igen" : "Starta elverk");
+        mGenButton->setStyleSheet("");
+    } else {
+        mGenButton->setText("Stoppa elverk");
+        mGenButton->setStyleSheet("QPushButton { background-color: #c62828; color: white; font-weight: bold; }");
     }
 }
 

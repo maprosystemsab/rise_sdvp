@@ -57,6 +57,7 @@
 #include "wheelspeed.h"
 // #include "watchdog.h"
 #include "actions.h"
+#include "generator.h"
 //event_source_t emergency_event;
 
 #define MS2ST(ms)   ((systime_t)((ms) * CH_CFG_ST_FREQUENCY / 1000))
@@ -162,6 +163,7 @@ int main(void) {
 
 	motor_control_init();
 	timeout_init();
+	generator_init();
 	log_init();
 	motor_sim_init();
 	commands_init();

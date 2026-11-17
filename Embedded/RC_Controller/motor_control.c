@@ -30,6 +30,7 @@
 #include "terminal.h"
 #include "styr_position.h"
 #include "pos.h"
+#include "generator.h"
 #include <stdio.h>
 #include <string.h>
 //#include "watchdog.h"
@@ -589,6 +590,9 @@ static bool centrera_bakben(void) {
 }
 
 static void skicka_sidor(float vanster, float hoger) {
+	float tak = generator_effekt_faktor();	// elverket igång: mindre effekt
+	vanster *= tak;
+	hoger *= tak;
 	skicka_till(ACT_NR_FART_VANSTER, vanster);
 	skicka_till(ACT_NR_FART_HOGER, hoger);
 }
@@ -826,8 +830,9 @@ static void ap_fart(float speed) {
 			v = inre;
 		}
 	}
-	motor_set_vesc_value(VESC_LEFT, v, MOTOR_CONTROL_DUTY);
-	motor_set_vesc_value(VESC_RIGHT, h, MOTOR_CONTROL_DUTY);
+	float tak = generator_effekt_faktor();
+	motor_set_vesc_value(VESC_LEFT, v * tak, MOTOR_CONTROL_DUTY);
+	motor_set_vesc_value(VESC_RIGHT, h * tak, MOTOR_CONTROL_DUTY);
 }
 #endif
 
