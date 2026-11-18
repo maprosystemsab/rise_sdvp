@@ -47,7 +47,7 @@
 #include "nodstopp_di.h"
 
 #ifndef GEN_VESC_ID
-#define GEN_VESC_ID				60		// Maxim+:s CAN-ID (sätts i VESC Tool)
+#define GEN_VESC_ID				105		// Maxim+:s CAN-ID (FMV .13: 105, avläst 18/11)
 #endif
 #define GEN_CAN_SID				0x05E	// stoppkabel-meddelandet (ledigt standard-ID)
 #define GEN_PERIOD_MS			20
