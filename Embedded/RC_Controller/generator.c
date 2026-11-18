@@ -69,6 +69,13 @@ static float m_gaarvarv = 900.0f;	// varv/min som Hondan måste hålla själv
 static float m_kolla_s = 0.8f;
 static float m_ladd_a = 30.0f;		// bromsström = laddning (Marvin körde ca 1,5 kW)
 static float m_ladd_ramp_s = 3.0f;
+// Varmladdning: Hondans avgaser går (vintertid, flexslangen flyttad) genom en ljuddämpare
+// under batterierna. Börja därför med låg laddström medan batterierna värms – LiFePO4 tål
+// inte full laddning under 0 °C. Ingen batterigivare finns, så det styrs på tid.
+// `gen varmtid 0` stänger av (sommar).
+static float m_varm_min = 10.0f;	// minuter med låg ström efter start (0 = av)
+static float m_varm_a = 5.0f;		// laddström under varmladdningen
+#define GEN_VARM_RAMP_S		60.0f	// sedan upp till `ladd` på en minut
 static float m_stoppvarv = 800.0f;	// under detta i 1 s under laddning = tjuvstopp
 static float m_maxvarv = 4200.0f;	// GX200 är regulerad till ca 3600
 static float m_tak = 0.5f;			// drivningens duty-faktor medan elverket är igång
@@ -304,6 +311,7 @@ void generator_init(void) {
 			"  start | stopp | auto pa|av\n"
 			"  id N, polpar N, riktning 1|-1, vev A, vevramp S, vevtid S, forsok N, paus S,\n"
 			"  startvarv R, gaarvarv R, kolla S, ladd A, laddramp S, stoppvarv R, maxvarv R,\n"
+			"  varmtid MIN, varmladd A (lag laddstrom forsta minuterna i kyla, varmtid 0 = sommar),\n"
 			"  tak X (drivningens duty-faktor under drift), full V, startspanning V, tapp S\n"
 			"  (installningarna nollstalls vid omstart)",
 			"[start|stopp|auto pa|av|NAMN VARDE]",
@@ -454,6 +462,15 @@ static THD_FUNCTION(gen_thread, arg) {
 
 		case GEN_LADDAR: {
 			float a = m_ladd_a;
+			if (m_varm_min > 0.01f) {
+				float varm_s = m_varm_min * 60.0f;
+				float lag = fminf(m_varm_a, m_ladd_a);
+				if (t < varm_s) {
+					a = lag;
+				} else if (t < varm_s + GEN_VARM_RAMP_S) {
+					a = lag + (m_ladd_a - lag) * (t - varm_s) / GEN_VARM_RAMP_S;
+				}
+			}
 			if (m_ladd_ramp_s > 0.01f && t < m_ladd_ramp_s) {
 				a *= t / m_ladd_ramp_s;
 			}
@@ -531,6 +548,8 @@ static void terminal_gen(int argc, const char **argv) {
 		{"kolla", &m_kolla_s, 0.2f, 5.0f},
 		{"ladd", &m_ladd_a, 0.0f, 150.0f},
 		{"laddramp", &m_ladd_ramp_s, 0.0f, 20.0f},
+		{"varmtid", &m_varm_min, 0.0f, 60.0f},
+		{"varmladd", &m_varm_a, 0.0f, 50.0f},
 		{"stoppvarv", &m_stoppvarv, 100.0f, 4000.0f},
 		{"maxvarv", &m_maxvarv, 1000.0f, 6000.0f},
 		{"tak", &m_tak, 0.0f, 1.0f},
@@ -580,6 +599,10 @@ static void terminal_gen(int argc, const char **argv) {
 	commands_printf("  Maxim+ ID %d: %s, %.0f varv/min, %.1f A, %.1f V",
 			m_id, m_status_ok ? "hors" : "HORS INTE", (double)m_varv, (double)m_strom,
 			(double)m_vin);
+	if (m_lage == GEN_LADDAR && m_varm_min > 0.01f && sek_i_lage() < m_varm_min * 60.0f) {
+		commands_printf("  Varmladdning: %.1f A, %.0f min kvar (flexslangen under batterierna?)",
+				(double)fminf(m_varm_a, m_ladd_a), (double)(m_varm_min - sek_i_lage() / 60.0f));
+	}
 	for (int i = 0;i < n;i++) {
 		commands_printf("  %-13s %.2f", p[i].namn, (double)*p[i].varde);
 	}

@@ -6,8 +6,8 @@ static jmp_buf jb; static int steg_kvar;
 // Honda + Goldenmotor-modell
 static float rpm=0, cmd_crank=0, cmd_brake=0; static bool kill_open=false, kan_tanda=true, can_tyst=false;
 static float tand_tid=0; static bool gar=false; static uint32_t cmd_tid=0;
-static can_status_msg st={60,0,0,0,0,51.0f};
-can_status_msg *comm_can_get_status_msg_id(int id){ if(id!=60) return 0; return &st; }
+static can_status_msg st={GEN_VESC_ID,0,0,0,0,51.0f};
+can_status_msg *comm_can_get_status_msg_id(int id){ if(id!=GEN_VESC_ID) return 0; return &st; }
 void comm_can_transmit_eid(uint32_t id,uint8_t*d,uint8_t l){ (void)l; int32_t i=0; float a=buffer_get_int32(d,&i)/1000.0f;
   int cmd=id>>8; cmd_tid=sim_now; if(cmd==1){cmd_crank=a;cmd_brake=0;} else {cmd_brake=a;cmd_crank=0;} }
 void comm_can_transmit_sid(uint32_t id,uint8_t*d,uint8_t l){ (void)id;(void)l; kill_open=d[1]==1; }
@@ -45,5 +45,8 @@ int main(void){
   printf("TEST 6: batteri fullt stoppar\n"); nollstall(); m_full_v=55; generator_start(); kor(8); st.v_in=56; kor(6); rapport("56 V"); if(m_lage!=GEN_AV||gar) fel++; m_full_v=0; st.v_in=51;
   printf("TEST 7: ingen kontakt med föraren (tapp 2 s)\n"); nollstall(); m_tapp_s=2; generator_start(); kor(8); sim_timeout=true; kor(9); rapport("tappad länk"); if(gar||m_fel!=GEN_FEL_INGEN_KONTAKT) fel++; m_tapp_s=120;
   printf("TEST 8: automatik startar under 48 V\n"); nollstall(); m_start_v=48; st.v_in=47; generator_auto(true); kor(8); rapport("auto"); if(m_lage!=GEN_LADDAR) fel++; m_start_v=0; st.v_in=51;
+  printf("TEST 9: varmladdning (låg ström först, sedan full)\n"); nollstall(); generator_start(); kor(8); printf("    laddström efter 8 s = %.1f A\n", cmd_brake); if(m_lage!=GEN_LADDAR||fabsf(cmd_brake-m_varm_a)>0.01f) fel++;
+  kor(m_varm_min*60+70); printf("    laddström efter %.0f min = %.1f A\n", m_varm_min+1.2f, cmd_brake); if(fabsf(cmd_brake-m_ladd_a)>0.01f) fel++;
+  generator_stopp(); kor(6); m_varm_min=0; nollstall(); generator_start(); kor(8); printf("    varmtid 0 (sommar): laddström efter 8 s = %.1f A\n", cmd_brake); if(fabsf(cmd_brake-m_ladd_a)>0.01f) fel++; generator_stopp(); kor(6); m_varm_min=10;
   printf("\n%s (%d fel)\n", fel?"MISSLYCKADES":"ALLA TESTER OK", fel); return fel;
 }

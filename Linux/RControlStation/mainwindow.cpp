@@ -371,6 +371,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 25)); // + heartbeat-timeout nollar manuell gas
     mSupportedFirmwares.append(qMakePair(30, 26)); // + tålig vinkelgivare, kurs från två antenner
     mSupportedFirmwares.append(qMakePair(30, 27)); // + elverk med fjärrstart (CMD_GENERATOR 152)
+    mSupportedFirmwares.append(qMakePair(30, 28)); // + elverkets varmladdning
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 
