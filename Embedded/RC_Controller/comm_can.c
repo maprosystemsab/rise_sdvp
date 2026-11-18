@@ -309,6 +309,14 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 
 		while (rx_frame_read != rx_frame_write) {
 			CANRxFrame rxmsg = rx_frames[rx_frame_read++];
+			// Slå runt direkt: `continue` nedan (främmande VESC-buffertpaket) hoppade
+			// förut över omslaget i slutet av slingan. Då sprang läsindexet förbi
+			// 100 och slingan läste minne utanför bufferten för alltid -> kortet
+			// slutade svara på USB (FMV .13 hängde 17/11 och 18/11 när VESC:arna
+			// pratade med varandra, t.ex. VESC Tool/mcconf via CAN).
+			if (rx_frame_read >= RX_FRAMES_SIZE) {
+				rx_frame_read = 0;
+			}
 			if (rxmsg.IDE == CAN_IDE_EXT) {
 				// Process extended IDs (VESC Communication)
 				uint8_t id = rxmsg.EID & 0xFF;
@@ -529,10 +537,6 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 					}
 				}
 #endif
-			}
-
-			if (rx_frame_read == RX_FRAMES_SIZE) {
-				rx_frame_read = 0;
 			}
 		}
 	}
