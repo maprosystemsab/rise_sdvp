@@ -20,7 +20,7 @@ static void fysik(float dt){
   else mal=cmd_crank*10.0f;             // vevvarv ~ 10 rpm/A
   if(gar && mal<1400) mal=1400;
   float k = gar?2.0f:3.0f; rpm += (mal-rpm)*k*dt; if(rpm<0)rpm=0;
-  if(!can_tyst){ st.rx_time=sim_now; st.rpm=rpm*4.0f; st.current= gar? -cmd_brake : cmd_crank; }
+  if(!can_tyst){ st.rx_time=sim_now; st.rpm=rpm*4.0f; st.current= gar? -cmd_brake : cmd_crank; st.duty= gar? 0.6f : 0.2f; }
 }
 void chThdSleepMilliseconds(int ms){ fysik(ms/1000.0f); sim_now+=ms; if(--steg_kvar<=0) longjmp(jb,1); }
 static void kor(float sek){ steg_kvar=(int)(sek*50); if(!setjmp(jb)) gen_thread(0); }
@@ -45,8 +45,9 @@ int main(void){
   printf("TEST 6: batteri fullt stoppar\n"); nollstall(); m_full_v=55; generator_start(); kor(8); st.v_in=56; kor(6); rapport("56 V"); if(m_lage!=GEN_AV||gar) fel++; m_full_v=0; st.v_in=51;
   printf("TEST 7: ingen kontakt med föraren (tapp 2 s)\n"); nollstall(); m_tapp_s=2; generator_start(); kor(8); sim_timeout=true; kor(9); rapport("tappad länk"); if(gar||m_fel!=GEN_FEL_INGEN_KONTAKT) fel++; m_tapp_s=120;
   printf("TEST 8: automatik startar under 48 V\n"); nollstall(); m_start_v=48; st.v_in=47; generator_auto(true); kor(8); rapport("auto"); if(m_lage!=GEN_LADDAR) fel++; m_start_v=0; st.v_in=51;
-  printf("TEST 9: varmladdning (låg ström först, sedan full)\n"); nollstall(); generator_start(); kor(8); printf("    laddström efter 8 s = %.1f A\n", cmd_brake); if(m_lage!=GEN_LADDAR||fabsf(cmd_brake-m_varm_a)>0.01f) fel++;
-  kor(m_varm_min*60+70); printf("    laddström efter %.0f min = %.1f A\n", m_varm_min+1.2f, cmd_brake); if(fabsf(cmd_brake-m_ladd_a)>0.01f) fel++;
-  generator_stopp(); kor(6); m_varm_min=0; nollstall(); generator_start(); kor(8); printf("    varmtid 0 (sommar): laddström efter 8 s = %.1f A\n", cmd_brake); if(fabsf(cmd_brake-m_ladd_a)>0.01f) fel++; generator_stopp(); kor(6); m_varm_min=10;
+  printf("TEST 9: varmladdning (låg ström först, sedan full)\n"); nollstall(); generator_start(); kor(8); printf("    batteriström efter 8 s = %.1f A (motor %.1f A)\n", cmd_brake*st.duty, cmd_brake); if(m_lage!=GEN_LADDAR||fabsf(cmd_brake*st.duty-m_varm_a)>0.05f) fel++;
+  kor(m_varm_min*60+70); printf("    batteriström efter %.0f min = %.1f A (motor %.1f A)\n", m_varm_min+1.2f, cmd_brake*st.duty, cmd_brake); if(fabsf(cmd_brake*st.duty-m_ladd_a)>0.05f) fel++;
+  generator_stopp(); kor(6); m_varm_min=0; nollstall(); generator_start(); kor(8); printf("    varmtid 0 (sommar): batteriström efter 8 s = %.1f A\n", cmd_brake*st.duty); if(fabsf(cmd_brake*st.duty-m_ladd_a)>0.05f) fel++;
+  m_ladd_a=60; kor(2); printf("    ladd 60: motor %.1f A (tak laddmax %.0f)\n", cmd_brake, m_laddmax_a); if(fabsf(cmd_brake-m_laddmax_a)>0.05f) fel++; m_ladd_a=30; generator_stopp(); kor(6); m_varm_min=10;
   printf("\n%s (%d fel)\n", fel?"MISSLYCKADES":"ALLA TESTER OK", fel); return fel;
 }

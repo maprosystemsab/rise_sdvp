@@ -372,6 +372,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mSupportedFirmwares.append(qMakePair(30, 26)); // + tålig vinkelgivare, kurs från två antenner
     mSupportedFirmwares.append(qMakePair(30, 27)); // + elverk med fjärrstart (CMD_GENERATOR 152)
     mSupportedFirmwares.append(qMakePair(30, 28)); // + elverkets varmladdning
+    mSupportedFirmwares.append(qMakePair(30, 29)); // + elverkets laddström i batteriström
 
     ui->mapStreamNmeaFollowBox->setChecked(true);
 

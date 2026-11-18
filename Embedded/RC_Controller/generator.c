@@ -1,5 +1,5 @@
 /*
-	Elverk med fjärrstart (RobAnt, firmware 30.27)
+	Elverk med fjärrstart (RobAnt, firmware 30.27, laddning i batteriström från 30.29)
 
 	Honda GX200 med en Goldenmotor HPM 5 kW direkt på vevaxeln (1:1), driven av en
 	VESC Labs Maxim+ 150 V. Allt går över CAN:
@@ -15,7 +15,8 @@
 	Förlopp (generator_start):
 	  AV -> VEVAR (stoppkabeln släppt, vevström rampas upp)
 	     -> varvet över `startvarv`  -> KOLLAR (strömmen 0: går Hondan själv?)
-	        -> varvet håller över `gaarvarv` -> LADDAR (bromsström rampas upp till `ladd`)
+	        -> varvet håller över `gaarvarv` -> LADDAR (laddström till batteriet rampas upp till `ladd`;
+           bromsströmmen i motorn = ladd / duty, högst `laddmax`)
 	        -> annars PAUS och nytt försök, högst `forsok` gånger -> FEL
 	  LADDAR -> stopp / batteriet fullt / tjuvstopp / övervarv -> STOPPAR -> AV (eller FEL)
 
@@ -59,15 +60,17 @@
 static int   m_id = GEN_VESC_ID;
 static float m_polpar = 4.0f;		// Goldenmotorns polpar: ERPM / polpar = varv/min (kontrollera i VESC Tool)
 static float m_riktning = 1.0f;		// vevriktning, byt med `gen riktning -1`
-static float m_vev_a = 50.0f;		// vevström (A); GX200 har automatisk dekompression
+static float m_vev_a = 80.0f;		// vevström (A); 50 A orkade inte över kompressionen (prov 18/11)
 static float m_vev_ramp_s = 0.3f;	// upp till vevströmmen
 static float m_vev_tid_s = 3.0f;	// längsta vevning per försök
 static int   m_forsok = 3;
 static float m_paus_s = 3.0f;		// mellan försöken
-static float m_startvarv = 1100.0f;	// varv/min: släpp vevningen och kolla
-static float m_gaarvarv = 900.0f;	// varv/min som Hondan måste hålla själv
+static float m_startvarv = 1600.0f;	// varv/min: släpp vevningen och kolla (vevningen själv når ca 1100)
+static float m_gaarvarv = 1300.0f;	// varv/min som Hondan måste hålla själv
 static float m_kolla_s = 0.8f;
-static float m_ladd_a = 30.0f;		// bromsström = laddning (Marvin körde ca 1,5 kW)
+static float m_ladd_a = 30.0f;		// laddström IN I BATTERIET (A); 30 A ≈ 1,6 kW, Marvin körde ca 2 kW
+static float m_laddmax_a = 70.0f;	// högsta bromsström i motorn (Maxim+ l_in_current_min är -60 A)
+#define GEN_LADD_MIN_DUTY	0.3f	// skydd mot division med ~0 när varvet faller
 static float m_ladd_ramp_s = 3.0f;
 // Varmladdning: Hondans avgaser går (vintertid, flexslangen flyttad) genom en ljuddämpare
 // under batterierna. Börja därför med låg laddström medan batterierna värms – LiFePO4 tål
@@ -99,6 +102,7 @@ static int m_forsok_nr = 0;
 static systime_t m_lage_tid = 0;
 static float m_varv = 0.0f;			// senaste varv/min (mekaniskt, utan tecken)
 static float m_strom = 0.0f;		// senaste motorström (A)
+static float m_duty = 0.0f;			// senaste duty (utan tecken); batteriström ≈ motorström · duty
 static float m_vin = 0.0f;			// batterispänningen enligt Maxim+ (V)
 static bool m_status_ok = false;
 
@@ -218,7 +222,15 @@ static void las_status(void) {
 	m_status_ok = true;
 	m_varv = fabsf(st->rpm) / (m_polpar > 0.5f ? m_polpar : 1.0f);
 	m_strom = st->current;
+	m_duty = fabsf(st->duty);
 	m_vin = st->v_in;
+}
+
+/** Bromsström i motorn för en önskad laddström till batteriet (I_batt ≈ I_motor · duty). */
+static float motorstrom_for_batteri(float batteri_a) {
+	float d = m_duty > GEN_LADD_MIN_DUTY ? m_duty : GEN_LADD_MIN_DUTY;
+	float a = batteri_a / d;
+	return a < m_laddmax_a ? a : m_laddmax_a;
 }
 
 // --- Gränssnitt ---------------------------------------------------------------
@@ -310,7 +322,8 @@ void generator_init(void) {
 			"Elverk med fjarrstart (Honda + Goldenmotor + Maxim+ pa CAN). Utan argument: visa lage.\n"
 			"  start | stopp | auto pa|av\n"
 			"  id N, polpar N, riktning 1|-1, vev A, vevramp S, vevtid S, forsok N, paus S,\n"
-			"  startvarv R, gaarvarv R, kolla S, ladd A, laddramp S, stoppvarv R, maxvarv R,\n"
+			"  startvarv R, gaarvarv R, kolla S, ladd A (till batteriet), laddramp S, laddmax A (i motorn),\n"
+			"  stoppvarv R, maxvarv R,\n"
 			"  varmtid MIN, varmladd A (lag laddstrom forsta minuterna i kyla, varmtid 0 = sommar),\n"
 			"  tak X (drivningens duty-faktor under drift), full V, startspanning V, tapp S\n"
 			"  (installningarna nollstalls vid omstart)",
@@ -474,7 +487,7 @@ static THD_FUNCTION(gen_thread, arg) {
 			if (m_ladd_ramp_s > 0.01f && t < m_ladd_ramp_s) {
 				a *= t / m_ladd_ramp_s;
 			}
-			bromsa(a);
+			bromsa(motorstrom_for_batteri(a));
 			if (m_varv > m_maxvarv) {
 				satt_fel(GEN_FEL_OVERVARV);
 				break;
@@ -548,6 +561,7 @@ static void terminal_gen(int argc, const char **argv) {
 		{"kolla", &m_kolla_s, 0.2f, 5.0f},
 		{"ladd", &m_ladd_a, 0.0f, 150.0f},
 		{"laddramp", &m_ladd_ramp_s, 0.0f, 20.0f},
+		{"laddmax", &m_laddmax_a, 0.0f, 150.0f},
 		{"varmtid", &m_varm_min, 0.0f, 60.0f},
 		{"varmladd", &m_varm_a, 0.0f, 50.0f},
 		{"stoppvarv", &m_stoppvarv, 100.0f, 4000.0f},
